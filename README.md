@@ -3,16 +3,15 @@
 Form builder for 0xCMS — a Google-Forms-style plugin Worker on the standard
 plugin contract, reusing the events-suite / worker-rsvp blueprint.
 
-One Worker covers both sides:
+This Worker is the **admin** side only (`/__plugin/admin/*`, proxied by the
+host to `/admin/plugins/form/*`): form index, the Google-Forms-style page
+editor, per-form dashboard (share link, open/close, question summary),
+submissions table, CSV export, delete.
 
-- **Admin** (`/__plugin/admin/*`, proxied by the host to
-  `/admin/plugins/form/*`): form index, per-form dashboard (share link,
-  open/close, question summary), submissions table, CSV export, delete.
-- **Public** (`/f/<slug>` on this Worker's own domain): renders the published
-  form from the CMS's published D1 and stores submits as INSERT-only
-  `form_submission` rows — the worker-rsvp "Option B" contract (negative ids,
-  live-only uuids), so a CMS republish can never overwrite a response and the
-  public path never calls the Plugin API.
+Visitors are served by **[worker-form](../worker-form)** — a separate Worker on
+its own public domain that renders published forms from the CMS's published D1
+and records responses into it. Point `PUBLIC_BASE_URL` at it. The two Workers
+never call each other; the published database is the only thing between them.
 
 ## How a form is built
 
@@ -62,17 +61,19 @@ is a localized value, so it can be translated per language.
 Answer keys: `form-<name-slug>` — so answers survive label edits when an
 explicit `name` is set. Multi-select answers are joined with `", "`; grid
 questions store **one answer per row** under `form-<slug>__<row-slug>` and
-expand to one CSV column per row.
+expand to one CSV column per row. `src/fields.ts` derives those keys from the
+form definition; worker-form derives the same keys when it renders and stores
+a response, so the two must agree.
 
 ### File uploads
 
-File questions need the optional `UPLOADS` R2 binding (see `wrangler.toml`).
-Uploads are validated (extension allowlist, MIME consistency, magic bytes, size
-cap) and stored under `form-<id>/…`; the answer holds the storage key. Files are
-**never public** — the admin downloads them through
+worker-form stores a validated upload in the shared `UPLOADS` R2 bucket under
+`form-<id>/<uuid>-<name>`, and the answer holds that key. Bind the same bucket
+here (see `wrangler.toml`) and the submissions table turns those answers into
+download links. Files are **never public** — the only path to one is
 `/admin/plugins/form/forms/<id>/files/<key>`, which verifies the key belongs to
-that form. Without the binding, file questions render disabled and the rest of
-the form still works.
+that form. Without the binding, the admin side still works; file answers just
+show as text.
 
 "New form" seeds a starter contact block + one sample question, then opens the
 page editor. `form` is in `autoPublishTypes`, so saving publishes the page and
@@ -80,11 +81,12 @@ the public link works immediately.
 
 ## Submission flow
 
-1. Public POST `/f/<slug>` → honeypot + required-field checks →
-   `INSERT INTO live_pages` (`form_submission`, negative id, `page_id` = form id).
+1. A visitor POSTs `/f/<slug>` on **worker-form**, which validates and writes
+   `INSERT INTO live_pages` (`form_submission`, negative id, `page_id` = form
+   id) in the published D1. Nothing reaches this Worker.
 2. worker-cms's generic submission ingest (cron, or the admin's
    "Pull new submissions" button → `POST /__cms/ingest/submissions`) mirrors
-   live-only rows into draft pages and fires the `submission` hook.
+   live-only rows into draft pages and fires this plugin's `submission` hook.
 3. The admin reads the mirrored pages via the Plugin API
    (`page_type=form_submission&page_id=<form id>`) for the dashboard, table,
    and CSV export. Deleting a form trashes its submissions server-side
@@ -100,9 +102,9 @@ npm run dev
 
 - Register the plugin in the CMS admin under **Plugins** by its HTTPS URL; copy
   the dedicated secret into this Worker (`wrangler secret put PLUGIN_SECRET`).
-- For the public form site, bind the CMS's published D1 as `PUBLISHED_DB` and
-  set `PUBLIC_BASE_URL` (see `wrangler.toml`) — the admin dashboard uses it for
-  the shareable link. Without the binding the admin still works; `/f/*` 500s.
+- Deploy [worker-form](../worker-form) and set `PUBLIC_BASE_URL` to its origin,
+  so the dashboard's shareable link is right. Bind the same `UPLOADS` bucket it
+  writes to if any form uses file questions.
 - Multi-tenant: `npm run kv:setup` creates the `TENANTS` KV namespace; add one
   `tenant:<cms origin>` record per connected CMS (see `wrangler.toml`).
 
@@ -114,5 +116,5 @@ npm test
 ```
 
 Tests drive the Worker directly with a mocked `fetch` standing in for
-`{CMS_URL}/__cms/*` and a fake `PUBLISHED_DB`, mirroring the
-cms-plugin-events test pattern.
+`{CMS_URL}/__cms/*`, mirroring the cms-plugin-events test pattern. Public
+rendering and submit behaviour is covered in worker-form's own suite.

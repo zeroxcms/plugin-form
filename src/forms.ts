@@ -18,16 +18,20 @@
 // The form definition itself (blocks + custom inputs) is edited in the native
 // CMS page editor — the manifest's blocks/blockLists give the editor its
 // palette, mirroring how the events plugin's EDM/RSVP blocks are edited.
+//
+// Responses are collected by worker-form (PUBLIC_BASE_URL) straight into the
+// published D1; this side only ever reads them back as mirrored pages, once
+// the host has ingested them.
 // ============================================================
 
 import {
   CmsClient,
   PLUGIN_ID,
+  SUBMISSION_PAGE_TYPE,
   attr,
   type CmsPage,
 } from './cms';
 import { allFormFields, answerColumns, formIsOpen, hasContactBlock, slugify, type AnswerColumn } from './fields';
-import { SUBMISSION_PAGE_TYPE } from './submissions';
 import { keyBelongsToForm, uploadFileName } from './uploads';
 import { adminView, redirect } from '@lionrockjs/worker-cms-plugin';
 import { type FormAdminAccess, forbidden } from './permissions';
@@ -39,8 +43,11 @@ const RECENT_SUBMISSIONS = 10;
 
 export interface FormsEnv {
   VIEWS: Fetcher;
+  /** Origin of worker-form, which serves /f/<slug> to visitors. Shown as the
+   *  shareable link on the dashboard. */
   PUBLIC_BASE_URL?: string;
-  /** Attachment storage for file-upload questions (see src/uploads.ts). */
+  /** Attachment storage for file-upload questions — the bucket worker-form
+   *  writes uploads to (see src/uploads.ts). Read-only here. */
   UPLOADS?: R2Bucket;
 }
 

@@ -2,4 +2,5 @@
 # .dev.vars (cms/.dev.vars) or every Plugin API call 403s.
 CMS_URL=http://localhost:8787
 PLUGIN_SECRET=dev-plugin-secret
+# Origin of worker-form (the public form site) — used for the shareable link.
 # PUBLIC_BASE_URL=http://localhost:8790

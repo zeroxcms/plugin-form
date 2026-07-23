@@ -27,6 +27,14 @@ import {
 /** Manifest id — must equal MANIFEST.id and the CMS-registered plugin id. */
 export const PLUGIN_ID = 'form';
 
+/**
+ * Page type of one response. worker-form INSERTs these rows into the
+ * published D1 as visitors submit; the host mirrors each one into a draft
+ * page (firing this plugin's `submission` hook), which is the only form the
+ * admin ever reads. Must stay in step with worker-form/src/submissions.ts.
+ */
+export const SUBMISSION_PAGE_TYPE = 'form_submission';
+
 export {
   CmsApiError,
   CmsNotConfiguredError,

@@ -3,11 +3,13 @@
 //
 // A Google-Forms-style form builder on the 0xCMS plugin contract, reusing the
 // events-suite blueprint: forms are CMS pages built from blocks (the
-// `custom_input` item shape ported from the RSVP form), the admin UI is a set
-// of client-view fragments wrapped in the host admin chrome, and the public
-// form site lives on this same Worker (/f/<slug>) reading the published D1 —
-// the worker-rsvp posture, including INSERT-only submission rows that
-// worker-cms ingests and fires `submission` hooks for.
+// `custom_input` item shape ported from the RSVP form) and the admin UI is a
+// set of client-view fragments wrapped in the host admin chrome.
+//
+// This Worker is the ADMIN side only. Visitors are served by worker-form, a
+// separate Worker on its own domain that reads published forms from the CMS's
+// published D1 and INSERTs responses back into it (the worker-rsvp posture);
+// worker-cms ingests those rows and fires this plugin's `submission` hooks.
 // ============================================================
 
 import {
@@ -18,7 +20,6 @@ import {
 import { handleFormEditView } from './edit-view';
 import { handleFormsAdmin, type FormsEnv } from './forms';
 import { cmsUserId, formAdminAccessForRequest, forbidden } from './permissions';
-import { handlePublicForm, type PublicEnv } from './public';
 import { adminView } from './templates/views';
 import {
   redirect,
@@ -31,7 +32,7 @@ import {
 // than being assembled from constants here.
 import MANIFEST from './manifest.json';
 
-interface PluginEnv extends FormsEnv, PublicEnv {
+interface PluginEnv extends FormsEnv {
   PLUGIN_SECRET?: string;
   /** Base URL of the CMS Worker (for the Plugin API write-back API). */
   CMS_URL?: string;
@@ -107,10 +108,7 @@ export default {
       return handleAdmin(request, env, url);
     }
 
-    // ── Public form site (own domain) ──────────────────────────────────────
-    const publicForm = await handlePublicForm(request, env, url);
-    if (publicForm) return withSecurityHeaders(publicForm);
-
+    // Visitors belong to worker-form (PUBLIC_BASE_URL), not here.
     return new Response('not found', { status: 404 });
   },
 };
@@ -189,16 +187,4 @@ async function handleAdmin(request: Request, env: PluginEnv, url: URL): Promise<
     }
     throw error;
   }
-}
-
-// worker-rsvp posture for the public pages: strict headers, inline styles only.
-function withSecurityHeaders(response: Response): Response {
-  const wrapped = new Response(response.body, response);
-  const headers = wrapped.headers;
-  headers.set('content-security-policy', "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
-  headers.set('x-content-type-options', 'nosniff');
-  headers.set('x-frame-options', 'DENY');
-  headers.set('referrer-policy', 'no-referrer');
-  headers.set('permissions-policy', 'camera=(), microphone=(), geolocation=()');
-  return wrapped;
 }

@@ -3,9 +3,9 @@ main = "src/index.ts"
 compatibility_date = "2026-07-14"
 compatibility_flags = ["nodejs_compat", "global_fetch_strictly_public"]
 
-# Admin view templates (LiquidJS + JSON templates, mirroring the CMS) plus the
-# public form template. The Worker runs first for every request and reads these
-# internally via the VIEWS binding, so the files are never served publicly.
+# Admin view templates (LiquidJS + JSON templates, mirroring the CMS). The
+# Worker runs first for every request and reads these internally via the VIEWS
+# binding, so the files are never served publicly.
 [assets]
 directory = "./views"
 binding = "VIEWS"
@@ -30,21 +30,11 @@ binding = "CF_VERSION_METADATA"
 # binding = "TENANTS"
 # id = "REPLACE_WITH_ID_FROM_npm_run_kv_setup"
 
-# ── Public form site (this same Worker, /f/<slug>) ─────────────────────────────
-# Published-content database — the SAME D1 the CMS publishes to (`live_pages`).
-# Public GETs read published form pages from here; public POSTs insert
-# form_submission rows (INSERT-only, negative ids — see src/submissions.ts).
-# Without this binding the admin side still works; /f/* returns 500.
-# [[d1_databases]]
-# binding = "PUBLISHED_DB"
-# database_name = "cms-published"
-# database_id = "REPLACE_WITH_PUBLISHED_DB_ID"
-
-# Attachment storage for file-upload questions. Public submits write here
-# directly (validated: extension allowlist + magic bytes + size cap, see
-# src/uploads.ts); the files are NEVER served publicly — the admin downloads
-# them through /admin/plugins/form/forms/<id>/files/<key>. Leave unbound to
-# disable file questions (they render disabled and the rest of the form works):
+# ── Attachments (read side) ───────────────────────────────────────────────────
+# The SAME bucket worker-form writes file-upload answers to. Bind it to let the
+# admin download an attachment through
+# /admin/plugins/form/forms/<id>/files/<key> — the only path to one; files are
+# never served publicly. Leave unbound and file answers show as plain text:
 #   wrangler r2 bucket create cms-form-uploads
 # [[r2_buckets]]
 # binding = "UPLOADS"
@@ -55,6 +45,6 @@ binding = "CF_VERSION_METADATA"
 # ({CMS_URL}/__cms/*, page read/write). In multi-tenant mode, per-tenant cmsUrl
 # comes from the TENANTS record instead.
 CMS_URL = "http://localhost:8787"
-# Public origin serving /f/<slug> (this Worker's own public domain). Shown as
-# the shareable form link in the admin dashboard.
+# Origin of worker-form, the separate Worker that serves /f/<slug> to visitors.
+# Shown as the shareable form link in the admin dashboard.
 # PUBLIC_BASE_URL = "https://forms.example.com"
