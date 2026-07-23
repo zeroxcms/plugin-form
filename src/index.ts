@@ -15,7 +15,8 @@ import {
   CmsApiError,
   CmsNotConfiguredError,
 } from './cms';
-import { ADMIN_BASE, handleFormsAdmin, type FormsEnv } from './forms';
+import { handleFormEditView } from './edit-view';
+import { handleFormsAdmin, type FormsEnv } from './forms';
 import { cmsUserId, formAdminAccessForRequest, forbidden } from './permissions';
 import { handlePublicForm, type PublicEnv } from './public';
 import { adminView } from './templates/views';
@@ -55,7 +56,8 @@ export default {
     // to the calling CMS and cannot touch another tenant's data.
     let env = baseEnv;
     const secretRequired = path.startsWith('/__plugin/hooks/')
-      || path.startsWith('/__plugin/admin');
+      || path.startsWith('/__plugin/admin')
+      || path === '/__plugin/edit';
     if (secretRequired) {
       const tenant = await requireTenant(request, baseEnv);
       if (tenant instanceof Response) return tenant;
@@ -89,6 +91,16 @@ export default {
       // the hook is acknowledged so host deliveries don't retry.
       console.log(`[form-builder] hook ${hookEvent}: ${pages.length} page(s)`);
       return new Response('ok');
+    }
+
+    // Plugin-rendered page editor (manifest `editViews: ["form"]`). The CMS
+    // POSTs the editor context; we return the Google-Forms-style editor as a
+    // client view the CMS wraps in its admin chrome. The editor's form posts
+    // back to the CMS's own save handler, so no CMS client is needed here.
+    if (path === '/__plugin/edit' && request.method === 'POST') {
+      const access = formAdminAccessForRequest(request);
+      if (!access.canEdit) return forbidden();
+      return handleFormEditView(request);
     }
 
     if (path.startsWith('/__plugin/admin')) {

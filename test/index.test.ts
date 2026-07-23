@@ -10,6 +10,7 @@ interface PluginEnv {
   PLUGIN_SECRET?: string;
   PUBLIC_BASE_URL?: string;
   PUBLISHED_DB?: D1Database;
+  UPLOADS?: R2Bucket;
   VIEWS: Fetcher;
   CF_VERSION_METADATA?: WorkerVersionMetadata;
 }
@@ -25,6 +26,15 @@ function views(): Fetcher {
       try {
         return new Response(await readFile(fileURLToPath(new URL(`../views${url.pathname}`, import.meta.url).href), 'utf8'));
       } catch {
+        // The form editor reuses host pagefield snippets (picture, …); in
+        // production the plugin redirects those view paths to the host.
+        if (url.pathname.startsWith('/snippets/pagefield/')) {
+          try {
+            return new Response(await readFile(fileURLToPath(new URL(`../../../../workers/cms/views${url.pathname}`, import.meta.url).href), 'utf8'));
+          } catch {
+            // Fall through to the normal not-found response.
+          }
+        }
         return new Response('not found', { status: 404 });
       }
     },
@@ -371,6 +381,375 @@ describe('forms admin', () => {
     const html = await renderedText(response);
     expect(html).toContain('CMS responded');
     expect(html).toContain('404');
+  });
+});
+
+// ── Google-Forms-style edit view ──────────────────────────────────────────────
+
+describe('form edit view', () => {
+  function editContext(overrides: Record<string, unknown> = {}) {
+    return {
+      mode: 'edit',
+      action: '/admin/pages/301/edit',
+      backHref: '/admin/plugins/form/forms/301',
+      language: 'en',
+      pageType: 'form',
+      page: {
+        id: 301,
+        name: 'Feedback',
+        slug: 'feedback-abc123',
+        pageType: 'form',
+        weight: 0,
+        start: null,
+        end: null,
+        timezone: null,
+        editors: null,
+        lect: String(publishedForm().lect),
+      },
+      versions: [],
+      ...overrides,
+    };
+  }
+
+  function editRequest(context: Record<string, unknown>): Request {
+    return adminRequest('/__plugin/edit', {
+      method: 'POST',
+      body: JSON.stringify(context),
+      headers: { 'content-type': 'application/json' },
+    });
+  }
+
+  it('renders question cards posting the CMS block field grammar', async () => {
+    const response = await plugin.fetch(editRequest(editContext()), env());
+    expect(response.status).toBe(200);
+    expect(response.headers.get('x-cms-client-view')).toBe('1');
+    const html = await renderedText(response);
+
+    // Page basics post back to the CMS save handler.
+    expect(html).toContain('action="/admin/pages/301/edit"');
+    expect(html).toContain('name="name" value="Feedback"');
+    expect(html).toContain('name="slug" value="feedback-abc123"');
+    expect(html).toContain('name="@status"');
+
+    // The contact block (index 0) and questions block (index 1) keep their
+    // array indices in the field names.
+    expect(html).toContain('name="#0@_type" value="form-contact"');
+    expect(html).toContain('name="#0.label_name|en"');
+    expect(html).toContain('name="#1@_type" value="form-inputs"');
+    expect(html).toContain('name="#1.custom_input[0].label|en" value="Rating"');
+    expect(html).toContain('name="#1.custom_input[0]@type"');
+    // Radio question: options textarea shows one option per line.
+    expect(html).toContain('name="#1.custom_input[0].default_value|en"');
+    expect(html).toContain('1:Bad\n5:Great');
+    // Structured block operations (server round-trips, no JS required).
+    expect(html).toContain('value="block-item-add:1|custom_input"');
+    expect(html).toContain('value="block-item-delete:1|custom_input|0"');
+    expect(html).toContain('value="block-add"');
+    expect(html).toContain('value="block-delete:0"');
+    // Approved-asset enhancement (scroll restore + drag reorder).
+    expect(html).toContain('/admin/plugins/form/assets/editor-scroll.js');
+  });
+
+  it('declines other page types so the CMS falls back to its editor', async () => {
+    const response = await plugin.fetch(editRequest(editContext({ pageType: 'event' })), env());
+    expect(response.status).toBe(404);
+  });
+
+  it('serves the editor-scroll asset on the bare and admin paths', async () => {
+    const bare = await plugin.fetch(new Request('https://form.test/assets/editor-scroll.js'), env());
+    expect(bare.status).toBe(200);
+    expect(bare.headers.get('content-type')).toContain('text/javascript');
+    const proxied = await plugin.fetch(adminRequest('/__plugin/admin/assets/editor-scroll.js'), env());
+    expect(proxied.status).toBe(200);
+  });
+});
+
+// ── Google Forms question types ───────────────────────────────────────────────
+
+/** A form exercising every question type that renders its own control. */
+function richForm(): FakeRow {
+  const lect = JSON.parse(String(publishedForm().lect)) as Record<string, unknown>;
+  lect._blocks = [
+    {
+      _id: 'questions',
+      _type: 'form-inputs',
+      _weight: 1,
+      title: { mis: 'Questions' },
+      custom_input: [
+        { name: 'topics', type: 'checkboxes', required: 'no', label: { mis: 'Topics' }, default_value: 'a:Alpha\nb:Beta\nc:Gamma' },
+        { name: 'nps', type: 'scale', required: 'no', label: { mis: 'Recommend us' }, min: '1', max: '5', min_label: { mis: 'Never' }, max_label: { mis: 'Always' } },
+        { name: 'stars', type: 'rating', required: 'no', label: { mis: 'Overall' }, max: '5' },
+        { name: 'venue', type: 'grid-radio', required: 'no', label: { mis: 'Rate the venue' }, default_value: 'good:Good\nbad:Bad', rows: { mis: 'Food\nSeating' } },
+        { name: 'days', type: 'grid-checkbox', required: 'no', label: { mis: 'Availability' }, default_value: 'am:AM\npm:PM', rows: { mis: 'Monday\nTuesday' } },
+        { name: 'cv', type: 'file', required: 'no', label: { mis: 'Attach your CV' }, accept: 'pdf', max_size: '5' },
+      ],
+    },
+  ];
+  return publishedForm({ lect: JSON.stringify(lect) });
+}
+
+describe('question types', () => {
+  it('renders every Google-Forms control on the public form', async () => {
+    const { db } = fakePublishedDb([richForm()]);
+    const response = await plugin.fetch(
+      new Request('https://form.test/f/feedback-abc123'),
+      env({ PUBLISHED_DB: db, UPLOADS: fakeBucket().bucket }),
+    );
+    const html = await response.text();
+
+    // Checkboxes: one input per option, all sharing the field name.
+    expect(html).toContain('type="checkbox"');
+    expect(html).toContain('name="form-topics"');
+    expect(html).toContain('Gamma');
+    // Linear scale: numbered radios between the two end labels.
+    expect(html).toContain('Never');
+    expect(html).toContain('Always');
+    expect(html).toContain('id="form-nps-5"');
+    // Rating: stars emitted in DESCENDING order for the CSS-only fill rule.
+    expect(html.indexOf('id="form-stars-5"')).toBeLessThan(html.indexOf('id="form-stars-1"'));
+    // Grids: one field per ROW, columns as headers.
+    expect(html).toContain('name="form-venue__food"');
+    expect(html).toContain('name="form-venue__seating"');
+    expect(html).toContain('name="form-days__monday"');
+    // File upload forces multipart and advertises its constraints.
+    expect(html).toContain('enctype="multipart/form-data"');
+    expect(html).toContain('type="file"');
+    expect(html).toContain('accept=".pdf"');
+    expect(html).toContain('Max 5 MB');
+  });
+
+  it('disables file questions when no bucket is bound, keeping the rest usable', async () => {
+    const { db } = fakePublishedDb([richForm()]);
+    const response = await plugin.fetch(new Request('https://form.test/f/feedback-abc123'), env({ PUBLISHED_DB: db }));
+    const html = await response.text();
+    expect(html).toContain('File uploads are not available');
+    expect(html).toContain('disabled');
+    // A form with no usable file input must not ask for a multipart body.
+    expect(html).not.toContain('enctype="multipart/form-data"');
+    expect(html).toContain('name="form-topics"');
+  });
+
+  it('stores multi-select and per-row grid answers', async () => {
+    const { db, inserts } = fakePublishedDb([richForm()]);
+    const body = new URLSearchParams();
+    body.append('form-topics', 'a');
+    body.append('form-topics', 'c');
+    body.append('form-nps', '4');
+    body.append('form-stars', '5');
+    body.append('form-venue__food', 'good');
+    body.append('form-venue__seating', 'bad');
+    body.append('form-days__monday', 'am');
+    body.append('form-days__monday', 'pm');
+
+    const response = await plugin.fetch(new Request('https://form.test/f/feedback-abc123', {
+      method: 'POST',
+      body,
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    }), env({ PUBLISHED_DB: db }));
+
+    expect(response.status).toBe(303);
+    const lect = JSON.parse((inserts[0] as string[])[4]) as { answers: Record<string, string> };
+    // Several values for one field collapse into one comma-joined answer.
+    expect(lect.answers['form-topics']).toBe('a, c');
+    expect(lect.answers['form-days__monday']).toBe('am, pm');
+    expect(lect.answers['form-nps']).toBe('4');
+    expect(lect.answers['form-stars']).toBe('5');
+    expect(lect.answers['form-venue__food']).toBe('good');
+    expect(lect.answers['form-venue__seating']).toBe('bad');
+  });
+
+  it('requires every row of a required grid question', async () => {
+    const lect = JSON.parse(String(richForm().lect)) as Record<string, unknown>;
+    const blocks = lect._blocks as Array<{ custom_input: Array<Record<string, unknown>> }>;
+    blocks[0].custom_input = [blocks[0].custom_input[3]]; // the grid-radio, made required
+    blocks[0].custom_input[0].required = 'yes';
+    const { db, inserts } = fakePublishedDb([publishedForm({ lect: JSON.stringify(lect) })]);
+
+    const body = new URLSearchParams({ 'form-venue__food': 'good' }); // Seating left blank
+    const response = await plugin.fetch(new Request('https://form.test/f/feedback-abc123', {
+      method: 'POST',
+      body,
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    }), env({ PUBLISHED_DB: db }));
+
+    expect(response.status).toBe(400);
+    expect(inserts.length).toBe(0);
+    expect(await response.text()).toContain('Rate the venue');
+  });
+
+  it('offers every new type in the editor and shows its config panel', async () => {
+    const lect = JSON.parse(String(richForm().lect));
+    const response = await plugin.fetch(adminRequest('/__plugin/edit', {
+      method: 'POST',
+      body: JSON.stringify({
+        mode: 'edit',
+        action: '/admin/pages/301/edit',
+        backHref: '/admin/plugins/form/forms/301',
+        language: 'mis',
+        pageType: 'form',
+        page: { id: 301, name: 'Feedback', slug: 'feedback-abc123', pageType: 'form', weight: 0, lect: JSON.stringify(lect) },
+        versions: [],
+      }),
+      headers: { 'content-type': 'application/json' },
+    }), env());
+    const html = await renderedText(response);
+
+    for (const label of ['Checkboxes', 'File upload', 'Linear scale', 'Rating', 'Multiple choice grid', 'Checkbox grid']) {
+      expect(html).toContain(label);
+    }
+    // Grid question: options panel is relabelled "Columns" and gains Rows.
+    expect(html).toContain('Columns');
+    expect(html).toContain('name="#0.custom_input[3].rows|mis"');
+    expect(html).toContain('Food\nSeating');
+    // Scale bounds and labels, rating stars, file constraints.
+    expect(html).toContain('name="#0.custom_input[1]@min"');
+    expect(html).toContain('name="#0.custom_input[1].max_label|mis"');
+    expect(html).toContain('name="#0.custom_input[2]@max"');
+    expect(html).toContain('name="#0.custom_input[5]@accept"');
+    expect(html).toContain('name="#0.custom_input[5]@max_size"');
+    // Config a question's type doesn't currently show still round-trips.
+    expect(html).toContain('type="hidden" name="#0.custom_input[0].rows|mis"');
+  });
+});
+
+// ── File uploads ──────────────────────────────────────────────────────────────
+
+/** Minimal in-memory R2 stand-in covering put/get + writeHttpMetadata. */
+function fakeBucket() {
+  const objects = new Map<string, { body: string; contentType: string }>();
+  const bucket = {
+    async put(key: string, value: ReadableStream, options?: { httpMetadata?: { contentType?: string } }) {
+      const body = await new Response(value).text();
+      objects.set(key, { body, contentType: options?.httpMetadata?.contentType ?? '' });
+    },
+    async get(key: string) {
+      const stored = objects.get(key);
+      if (!stored) return null;
+      return {
+        body: new Response(stored.body).body,
+        writeHttpMetadata(headers: Headers) { headers.set('content-type', stored.contentType); },
+      };
+    },
+  } as unknown as R2Bucket;
+  return { bucket, objects };
+}
+
+function pdfFile(name = 'cv.pdf', body = '%PDF-1.4 hello'): File {
+  return new File([body], name, { type: 'application/pdf' });
+}
+
+describe('file upload questions', () => {
+  function fileForm(): FakeRow {
+    const lect = JSON.parse(String(publishedForm().lect)) as Record<string, unknown>;
+    lect._blocks = [{
+      _id: 'questions',
+      _type: 'form-inputs',
+      _weight: 1,
+      custom_input: [{ name: 'cv', type: 'file', required: 'no', label: { mis: 'CV' }, accept: 'pdf', max_size: '5' }],
+    }];
+    return publishedForm({ lect: JSON.stringify(lect) });
+  }
+
+  async function submitFile(file: File, uploads: R2Bucket | undefined, db: D1Database): Promise<Response> {
+    const body = new FormData();
+    body.append('form-cv', file);
+    return plugin.fetch(
+      new Request('https://form.test/f/feedback-abc123', { method: 'POST', body }),
+      env({ PUBLISHED_DB: db, UPLOADS: uploads }),
+    );
+  }
+
+  it('stores a valid file under the form prefix and records its key', async () => {
+    const { db, inserts } = fakePublishedDb([fileForm()]);
+    const { bucket, objects } = fakeBucket();
+    const response = await submitFile(pdfFile(), bucket, db);
+
+    expect(response.status).toBe(303);
+    const key = [...objects.keys()][0];
+    expect(key).toMatch(/^form-301\/[0-9a-f-]{36}-cv\.pdf$/);
+    const lect = JSON.parse((inserts[0] as string[])[4]) as { answers: Record<string, string> };
+    expect(lect.answers['form-cv']).toBe(key);
+  });
+
+  it('rejects a file whose bytes do not match its extension', async () => {
+    const { db, inserts } = fakePublishedDb([fileForm()]);
+    const { bucket, objects } = fakeBucket();
+    const response = await submitFile(pdfFile('cv.pdf', 'not really a pdf'), bucket, db);
+
+    expect(response.status).toBe(400);
+    expect(objects.size).toBe(0);
+    expect(inserts.length).toBe(0);
+    expect(await response.text()).toContain('not a valid file of that type');
+  });
+
+  it('rejects a disallowed extension', async () => {
+    const { db } = fakePublishedDb([fileForm()]);
+    const { bucket, objects } = fakeBucket();
+    const response = await submitFile(new File(['<script>'], 'evil.html', { type: 'text/html' }), bucket, db);
+
+    expect(response.status).toBe(400);
+    expect(objects.size).toBe(0);
+    expect(await response.text()).toContain('unsupported file type');
+  });
+
+  it('serves a stored file to the admin and refuses another form\'s key', async () => {
+    const { bucket, objects } = fakeBucket();
+    const { db } = fakePublishedDb([fileForm()]);
+    await submitFile(pdfFile(), bucket, db);
+    const key = [...objects.keys()][0];
+
+    stubCms((method, url) => {
+      if (method === 'GET' && url.pathname === '/__cms/pages/301') return Response.json({ page: cmsFormPage() });
+      return null;
+    });
+
+    const download = await plugin.fetch(
+      adminRequest(`/__plugin/admin/forms/301/files/${key}`),
+      env({ UPLOADS: bucket }),
+    );
+    expect(download.status).toBe(200);
+    expect(download.headers.get('content-disposition')).toContain('cv.pdf');
+    // Attacker-supplied bytes must never be sniffed into an executable type.
+    expect(download.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(await download.text()).toContain('%PDF');
+
+    // A key belonging to a different form must never resolve, even though the
+    // admin is authorized for THIS form.
+    const wrong = await plugin.fetch(
+      adminRequest('/__plugin/admin/forms/301/files/form-999/abc-cv.pdf'),
+      env({ UPLOADS: bucket }),
+    );
+    expect(wrong.status).toBe(404);
+  });
+
+  it('lists a file answer as a download link and exports its filename', async () => {
+    const key = 'form-301/11111111-2222-3333-4444-555555555555-cv.pdf';
+    const lect = JSON.parse(String(fileForm().lect));
+    stubCms((method, url) => {
+      if (method === 'GET' && url.pathname === '/__cms/pages/301') {
+        return Response.json({ page: cmsFormPage({ lect }) });
+      }
+      if (method === 'GET' && url.pathname === '/__cms/pages' && url.searchParams.get('page_type') === 'form_submission') {
+        return Response.json({
+          pages: [{
+            id: 900, page_type: 'form_submission', name: 'Ada', page_id: 301,
+            lect: { name: 'Ada', email: 'ada@example.com', submitted_at: '2026-07-03T09:00:00Z', answers: { 'form-cv': key } },
+          }],
+          total: 1,
+        });
+      }
+      return null;
+    });
+
+    const table = await plugin.fetch(adminRequest('/__plugin/admin/forms/301/submissions'), env());
+    const html = await renderedText(table);
+    expect(html).toContain('/admin/plugins/form/forms/301/files/form-301/');
+    expect(html).toContain('cv.pdf');
+
+    const csv = await (await plugin.fetch(adminRequest('/__plugin/admin/forms/301/export'), env())).text();
+    // The CSV carries the human filename, never the internal storage key.
+    expect(csv).toContain('cv.pdf');
+    expect(csv).not.toContain('11111111-2222');
   });
 });
 

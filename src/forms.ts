@@ -26,8 +26,9 @@ import {
   attr,
   type CmsPage,
 } from './cms';
-import { allFormFields, formIsOpen, hasContactBlock, slugify } from './fields';
+import { allFormFields, answerColumns, formIsOpen, hasContactBlock, slugify, type AnswerColumn } from './fields';
 import { SUBMISSION_PAGE_TYPE } from './submissions';
+import { keyBelongsToForm, uploadFileName } from './uploads';
 import { adminView, redirect } from '@lionrockjs/worker-cms-plugin';
 import { type FormAdminAccess, forbidden } from './permissions';
 
@@ -39,6 +40,8 @@ const RECENT_SUBMISSIONS = 10;
 export interface FormsEnv {
   VIEWS: Fetcher;
   PUBLIC_BASE_URL?: string;
+  /** Attachment storage for file-upload questions (see src/uploads.ts). */
+  UPLOADS?: R2Bucket;
 }
 
 export async function handleFormsAdmin(
@@ -73,6 +76,9 @@ export async function handleFormsAdmin(
   if (formId && sub === 'export') {
     if (!access.canExport) return forbidden();
     return exportSubmissions(cms, formId);
+  }
+  if (formId && sub === 'files' && segments.length > 2) {
+    return downloadFile(cms, env, formId, segments.slice(2).map(decodeURIComponent).join('/'));
   }
   if (formId && sub === 'delete') {
     if (!access.canDelete) return forbidden();
@@ -141,11 +147,11 @@ async function createFormFromForm(request: Request, cms: CmsClient): Promise<Res
     slug: `${slugify(name) || 'form'}-${suffix}`,
     lect: {
       _type: 'form',
-      name: { en: name },
+      name: { mis: name },
       status: 'open',
       button_label: 'Submit',
       thankyou_heading: 'Thank you',
-      thankyou_body: { en: 'Your response has been recorded.' },
+      thankyou_body: { mis: 'Your response has been recorded.' },
       // Starter blocks so the editor opens with a usable form: a contact
       // section plus one sample question (same block shapes the manifest
       // declares — the page editor takes over from here).
@@ -154,18 +160,18 @@ async function createFormFromForm(request: Request, cms: CmsClient): Promise<Res
           _id: 'contact',
           _type: 'form-contact',
           _weight: 1,
-          title: { en: 'Your details' },
-          label_name: { en: 'Name' },
-          label_email: { en: 'Email' },
+          title: { mis: 'Your details' },
+          label_name: { mis: 'Name' },
+          label_email: { mis: 'Email' },
           require_email: 'yes',
         },
         {
           _id: 'questions',
           _type: 'form-inputs',
           _weight: 2,
-          title: { en: 'Questions' },
+          title: { mis: 'Questions' },
           custom_input: [
-            { name: 'question-1', type: 'text', required: 'no', label: { en: 'Sample question' }, default_value: '' },
+            { name: 'question-1', type: 'text', required: 'no', label: { mis: 'Sample question' }, default_value: '' },
           ],
         },
       ],
@@ -198,6 +204,9 @@ async function formDashboard(
 
   const { pages: submissions, total } = await cms.list(SUBMISSION_PAGE_TYPE, { parentId: formId, limit: RECENT_SUBMISSIONS });
   const fields = allFormFields(form);
+  // The dashboard preview shows only the first few answer columns; the full
+  // set (with every grid row) lives on the submissions page.
+  const previewColumns = answerColumns(form).slice(0, 3);
   const open = formIsOpen(form.lect);
 
   return adminView(env.VIEWS, form.name, 'form-dashboard', {
@@ -222,8 +231,8 @@ async function formDashboard(
     submissionsHref: `${ADMIN_BASE}/forms/${formId}/submissions`,
     exportHref: access.canExport && total > 0 ? `${ADMIN_BASE}/forms/${formId}/export` : '',
     pullAction: access.canEdit ? `${ADMIN_BASE}/forms/${formId}/pull` : '',
-    recentSubmissions: submissions.map((submission) => submissionRow(submission, fields.slice(0, 3))),
-    recentColumns: fields.slice(0, 3).map((field) => field.label),
+    recentSubmissions: submissions.map((submission) => submissionRow(submission, previewColumns, formId)),
+    recentColumns: previewColumns.map((column) => column.label),
   }, jsonOnly);
 }
 
@@ -259,11 +268,6 @@ async function pullSubmissions(cms: CmsClient, formId: number, url: URL): Promis
 
 // ── Submissions ───────────────────────────────────────────────────────────────
 
-interface SubmissionColumn {
-  label: string;
-  name: string;
-}
-
 function submissionAnswers(submission: CmsPage): Record<string, string> {
   const value = submission.lect.answers;
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
@@ -272,33 +276,77 @@ function submissionAnswers(submission: CmsPage): Record<string, string> {
   );
 }
 
-function submissionRow(submission: CmsPage, columns: Array<{ name: string }>): Record<string, unknown> {
+/** One table cell: plain text, or a download link for a stored upload. */
+interface SubmissionCell {
+  text: string;
+  href: string;
+}
+
+function submissionRow(submission: CmsPage, columns: AnswerColumn[], formId: number): Record<string, unknown> {
   const answers = submissionAnswers(submission);
   return {
     id: submission.id,
     name: attr(submission.lect, 'name') || submission.name,
     email: attr(submission.lect, 'email'),
     submittedAt: attr(submission.lect, 'submitted_at').replace('T', ' ').slice(0, 16),
-    values: columns.map((column) => answers[column.name] ?? ''),
+    values: columns.map((column): SubmissionCell => {
+      const value = answers[column.name] ?? '';
+      if (!column.isFile || !value) return { text: value, href: '' };
+      return { text: uploadFileName(value), href: fileHref(formId, value) };
+    }),
   };
 }
 
 /**
- * Columns for the submissions table / CSV: the form's current custom inputs
- * first, then any stored answer keys the definition no longer carries (fields
- * that were edited or removed keep their historical answers visible).
+ * Columns for the submissions table / CSV: the form's current questions first
+ * (grid questions expand to one column per row), then any stored answer keys
+ * the definition no longer carries, so answers to edited or removed questions
+ * stay visible.
  */
-function submissionColumns(form: CmsPage, submissions: CmsPage[]): SubmissionColumn[] {
-  const columns: SubmissionColumn[] = allFormFields(form).map((field) => ({ label: field.label, name: field.name }));
+function submissionColumns(form: CmsPage, submissions: CmsPage[]): AnswerColumn[] {
+  const columns = answerColumns(form);
   const known = new Set(columns.map((column) => column.name));
   for (const submission of submissions) {
     for (const key of Object.keys(submissionAnswers(submission))) {
       if (known.has(key)) continue;
       known.add(key);
-      columns.push({ label: key.replace(/^form-/, '').replace(/[-_]/g, ' '), name: key });
+      columns.push({
+        name: key,
+        label: key.replace(/^form-/, '').replace(/__/g, ' — ').replace(/[-_]/g, ' '),
+        isFile: false,
+      });
     }
   }
   return columns;
+}
+
+/** Admin-only download URL for a stored upload (proxied through the host). */
+function fileHref(formId: number, key: string): string {
+  return `${ADMIN_BASE}/forms/${formId}/files/${key.split('/').map(encodeURIComponent).join('/')}`;
+}
+
+/**
+ * Streams one stored upload back to the signed-in admin. Attachments are never
+ * public: the only path to them is this route, which the host reaches with the
+ * plugin secret after authenticating the admin. The key must live under this
+ * form's prefix, so a crafted key cannot reach another form's files.
+ */
+async function downloadFile(cms: CmsClient, env: FormsEnv, formId: number, key: string): Promise<Response> {
+  const form = await cms.get(formId);
+  if (form.page_type !== 'form') return notFound();
+  if (!env.UPLOADS || !keyBelongsToForm(key, formId)) return notFound();
+
+  const object = await env.UPLOADS.get(key);
+  if (!object) return notFound();
+
+  const headers = new Headers();
+  object.writeHttpMetadata(headers);
+  headers.set('content-disposition', `attachment; filename="${uploadFileName(key).replace(/"/g, '')}"`);
+  headers.set('cache-control', 'private, no-store');
+  // Uploaded bytes are attacker-supplied; never let a browser sniff them into
+  // an executable type on the admin origin.
+  headers.set('x-content-type-options', 'nosniff');
+  return new Response(object.body, { headers });
 }
 
 async function submissionsView(
@@ -327,7 +375,7 @@ async function submissionsView(
     exportHref: access.canExport && total > 0 ? `${ADMIN_BASE}/forms/${formId}/export` : '',
     pullAction: access.canEdit ? `${ADMIN_BASE}/forms/${formId}/pull?return_to=submissions` : '',
     columns: columns.map((column) => column.label),
-    submissions: paged.map((submission) => submissionRow(submission, columns)),
+    submissions: paged.map((submission) => submissionRow(submission, columns, formId)),
     total,
     page,
     totalPages,
@@ -364,7 +412,12 @@ async function exportSubmissions(cms: CmsClient, formId: number): Promise<Respon
       attr(submission.lect, 'email'),
       attr(submission.lect, 'submitted_at'),
       attr(submission.lect, 'language'),
-      ...columns.map((column) => answers[column.name] ?? ''),
+      // File answers export as their original filename — the raw R2 key is an
+      // internal storage detail, and the file itself is admin-only anyway.
+      ...columns.map((column) => {
+        const value = answers[column.name] ?? '';
+        return column.isFile && value ? uploadFileName(value) : value;
+      }),
     ];
   });
 

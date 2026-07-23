@@ -5,6 +5,10 @@
   "i18n": false,
   "hooks": ["submission"],
   "autoPublishTypes": ["form"],
+  "editViews": ["form"],
+  "assets": [
+    { "path": "/assets/editor-scroll.js", "label": "Form editor scroll restoration and drag reorder" }
+  ],
   "nav": [
     { "label": "Forms", "href": "forms", "roles": ["admin", "editor", "moderator"] }
   ],
@@ -41,7 +45,12 @@
       "form-contact": ["title", "body:richtext/md", "label_name", "label_email", "@require_email:boolean"],
       "form-inputs": [
         "title", "body:richtext/md",
-        { "custom_input": ["@name", "@required:boolean", "@type", "label", "default_value"] }
+        {
+          "custom_input": [
+            "@name", "@required:boolean", "@type", "@min", "@max", "@accept", "@max_size",
+            "label", "default_value", "rows", "min_label", "max_label"
+          ]
+        }
       ]
     },
     "blockLists": {

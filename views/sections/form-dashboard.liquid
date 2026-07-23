@@ -86,7 +86,7 @@
         <td class="px-6 py-3 text-sm text-gray-500 whitespace-nowrap">{{ submission.submittedAt }}</td>
         <td class="px-6 py-3 text-sm text-gray-700">{{ submission.name }}</td>
         <td class="px-6 py-3 text-sm text-gray-500">{{ submission.email }}</td>
-        {% for value in submission.values %}<td class="px-6 py-3 text-sm text-gray-500">{{ value }}</td>{% endfor %}
+        {% for cell in submission.values %}<td class="px-6 py-3 text-sm text-gray-500">{% if cell.href != blank %}<a class="text-indigo-600 font-medium hover:text-indigo-800" href="{{ cell.href }}">{{ cell.text }}</a>{% else %}{{ cell.text }}{% endif %}</td>{% endfor %}
       </tr>
       {% else %}
       <tr><td colspan="{{ recentColumns.size | plus: 3 }}" class="px-6 py-10 text-center text-sm text-gray-400">No submissions yet.</td></tr>

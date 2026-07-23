@@ -1,0 +1,240 @@
+{%- comment -%}
+  Google-Forms-style form editor, rendered by the form plugin for `form`
+  pages and wrapped in the CMS admin chrome. The single <form id="main-form">
+  posts back to the CMS save handler at {{ action }} using the CMS field-name
+  conventions (@attr, .field|lang, #<block>…, and the block-add /
+  block-delete / block-item-* actions) — save, versioning and auto-publish
+  stay host-side. Styling uses only utilities the host CMS emits
+  (host-subset Tailwind) plus inline styles for the accent strip.
+  Add/remove/reorder work without JS (server round-trips); the approved
+  editor-scroll.js asset adds scroll restoration and drag-reorder.
+{%- endcomment -%}
+{%- assign cls_input = "block min-w-0 w-full max-w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent" -%}
+{%- assign cls_filled = "block min-w-0 w-full max-w-full px-3 py-2 bg-gray-50 border-0 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" -%}
+{%- assign cls_lbl = "block text-sm font-medium text-gray-700 mb-1" -%}
+
+<form id="main-form" method="post" action="{{ action }}" data-editor-form class="space-y-4" style="max-width:46rem;margin:0 auto">
+  <input type="hidden" name="page_type" value="form">
+  <input type="hidden" name="weight" value="{{ weight }}">
+  <input type="hidden" name="return_to" value="{{ backHref }}">
+
+  {%- comment -%} ── Top bar: back, language, save ── {%- endcomment -%}
+  <div class="flex items-center justify-between gap-3">
+    <a class="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-indigo-700" href="{{ backHref }}">
+      <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><use href="/assets/icons.svg#arrow-left"></use></svg>
+      Back
+    </a>
+    <div class="flex items-center gap-2">
+      <label class="flex items-center gap-2 text-xs text-gray-500">
+        Language
+        {%- comment -%} data-autosubmit: the CMS layout reloads the editor in that language. {%- endcomment -%}
+        <select name="_language" data-autosubmit class="px-2 py-1 border border-gray-300 rounded-lg text-xs bg-white">
+          {% for option in languageOptions %}<option value="{{ option.value }}"{% if option.selected %} selected{% endif %}>{{ option.label }}</option>{% endfor %}
+        </select>
+      </label>
+      <button type="submit" name="action" value="update" class="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-transparent bg-indigo-600 px-4 text-sm font-semibold text-white hover:bg-indigo-700 cursor-pointer">
+        <svg class="h-4 w-4" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true"><use href="/assets/icons.svg#check-circle"></use></svg>
+        Save
+      </button>
+    </div>
+  </div>
+
+  {% if errors and errors != empty %}
+    <ul class="rounded-lg border border-gray-200 bg-white px-4 py-3 text-sm text-red-600">
+      {% for error in errors %}<li>{{ error }}</li>{% endfor %}
+    </ul>
+  {% endif %}
+  {% if flash != blank %}<p class="rounded-lg bg-gray-50 border border-gray-200 px-4 py-3 text-sm text-gray-700">{{ flash }}</p>{% endif %}
+
+  {%- comment -%} ── Title card (purple accent strip, borderless inputs) ── {%- endcomment -%}
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+    <div style="height:.5rem;background:#4f46e5" aria-hidden="true"></div>
+    <div class="p-6 space-y-2">
+      <input class="block w-full border-0 p-0 bg-transparent text-2xl font-bold text-gray-900 focus:outline-none focus:ring-0" name="name" value="{{ name }}" required autocomplete="off" placeholder="Untitled form" aria-label="Form title">
+      <textarea class="block w-full border-0 p-0 bg-transparent text-sm text-gray-500 focus:outline-none focus:ring-0 resize-y" name="{{ descriptionName }}" rows="2" placeholder="{% if descriptionPlaceholder != blank %}{{ descriptionPlaceholder }}{% else %}Form description{% endif %}" aria-label="Form description">{{ descriptionValue }}</textarea>
+      <div class="flex items-center gap-2 text-xs font-mono text-gray-400">/f/<input class="w-full border-0 p-0 bg-transparent font-mono text-xs text-gray-500 focus:outline-none focus:ring-0" name="slug" value="{{ slug }}" required autocomplete="off" placeholder="slug" aria-label="Slug"></div>
+      <div class="flex items-center gap-2 pt-1">
+        <label class="flex items-center gap-2 text-xs text-gray-500">
+          Accepting responses
+          <select name="{{ statusName }}" class="px-2 py-1 border border-gray-300 rounded-lg text-xs bg-white">
+            <option value="open"{% unless statusValue == 'closed' %} selected{% endunless %}>Yes — open</option>
+            <option value="closed"{% if statusValue == 'closed' %} selected{% endif %}>No — closed</option>
+          </select>
+        </label>
+      </div>
+    </div>
+  </div>
+
+  {%- comment -%} ── Content blocks (weight-sortable cards) ── {%- endcomment -%}
+  {% if blocks == empty %}
+    <p class="rounded-lg border border-gray-200 bg-white px-4 py-6 text-center text-sm text-gray-400">No questions yet — pick “Questions” below and press Add.</p>
+  {% endif %}
+  <div data-weight-sortable class="space-y-4">
+    {% for block in blocks %}
+      <div data-weight-sortable-row class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 space-y-3">
+        <input type="hidden" name="{{ block.typeFieldName }}" value="{{ block.type }}">
+        <div class="flex items-center justify-between gap-2">
+          <button type="button" data-weight-sortable-handle title="Drag to reorder" aria-label="Drag to reorder" class="inline-flex h-7 w-7 shrink-0 cursor-grab items-center justify-center rounded text-gray-400 hover:bg-gray-100 hover:text-gray-600 active:cursor-grabbing">
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><use href="/assets/icons.svg#list"></use></svg>
+          </button>
+          <span class="flex items-center gap-3">
+            <span class="flex items-center gap-1 text-xs text-gray-400"><span aria-hidden="true">#</span><label for="{{ block.weightId }}" class="sr-only">Section order</label><input data-weight-sortable-input id="{{ block.weightId }}" type="number" name="{{ block.weightName }}" value="{{ block.weightValue }}" class="w-12 border-b border-transparent bg-transparent p-0 text-right text-sm font-bold focus:border-indigo-500 focus:outline-none"></span>
+            <button type="submit" name="action" value="{{ block.deleteAction }}" class="inline-flex h-7 w-7 items-center justify-center rounded text-gray-400 hover:bg-red-50 hover:text-red-600 cursor-pointer" title="Delete section" aria-label="Delete section"><svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><use href="/assets/icons.svg#trash"></use></svg></button>
+          </span>
+        </div>
+
+        {% case block.type %}
+        {% when 'form-inputs' %}
+          <input class="block w-full border-0 p-0 bg-transparent text-lg font-semibold text-gray-900 focus:outline-none focus:ring-0" name="{{ block.titleName }}" value="{{ block.titleValue }}" placeholder="Section title (optional)" aria-label="Section title">
+          <textarea class="block w-full border-0 p-0 bg-transparent text-sm text-gray-500 focus:outline-none focus:ring-0 resize-y" name="{{ block.bodyName }}" rows="1" placeholder="Section description (optional)" aria-label="Section description">{{ block.bodyValue }}</textarea>
+
+          <div data-weight-sortable class="space-y-3">
+            {% for question in block.questions %}
+              <div data-weight-sortable-row class="rounded-lg border border-gray-200 p-4 space-y-3">
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
+                  <button type="button" data-weight-sortable-handle title="Drag to reorder" aria-label="Drag to reorder" class="hidden sm:inline-flex h-7 w-7 shrink-0 cursor-grab items-center justify-center rounded text-gray-400 hover:bg-gray-100 hover:text-gray-600 active:cursor-grabbing">
+                    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><use href="/assets/icons.svg#list"></use></svg>
+                  </button>
+                  <input class="{{ cls_filled }} flex-1 font-medium" name="{{ question.labelName }}" value="{{ question.labelValue }}" placeholder="{{ question.labelPlaceholder }}" aria-label="{{ question.label }}">
+                  <select name="{{ question.typeName }}" class="px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white sm:w-44" aria-label="Question type">
+                    {% for option in question.typeOptions %}<option value="{{ option.value }}"{% if option.selected %} selected{% endif %}>{{ option.label }}</option>{% endfor %}
+                  </select>
+                </div>
+
+                {%- comment -%}
+                  Type-specific config. Every panel that is NOT shown still
+                  posts its stored value as a hidden input, so switching a
+                  question's type never silently discards the other type's
+                  settings (the CMS save handler writes whatever is posted).
+                {%- endcomment -%}
+                {% if question.isChoice %}
+                  <label class="block">
+                    <span class="{{ cls_lbl }}">{{ question.optionsLabel }} <span class="font-normal text-gray-400">— one per line</span></span>
+                    <textarea class="{{ cls_input }} resize-y" name="{{ question.optionsName }}" rows="4" placeholder="Option 1&#10;Option 2">{{ question.optionsValue }}</textarea>
+                  </label>
+                {% else %}
+                  <input type="hidden" name="{{ question.optionsName }}" value="{{ question.optionsValue }}">
+                {% endif %}
+
+                {% if question.isGrid %}
+                  <label class="block">
+                    <span class="{{ cls_lbl }}">Rows <span class="font-normal text-gray-400">— one per line</span></span>
+                    <textarea class="{{ cls_input }} resize-y" name="{{ question.rowsName }}" rows="3" placeholder="Row 1&#10;Row 2">{{ question.rowsValue }}</textarea>
+                  </label>
+                {% else %}
+                  <input type="hidden" name="{{ question.rowsName }}" value="{{ question.rowsValue }}">
+                {% endif %}
+
+                {% if question.isScale %}
+                  <div class="grid grid-cols-2 gap-4 sm:grid-cols-4">
+                    <label class="block"><span class="{{ cls_lbl }}">From</span><input type="number" min="0" max="20" class="{{ cls_input }}" name="{{ question.minName }}" value="{{ question.minValue }}"></label>
+                    <label class="block"><span class="{{ cls_lbl }}">To</span><input type="number" min="1" max="20" class="{{ cls_input }}" name="{{ question.maxName }}" value="{{ question.maxValue }}"></label>
+                    <label class="block"><span class="{{ cls_lbl }}">Low label</span><input class="{{ cls_input }}" name="{{ question.minLabelName }}" value="{{ question.minLabelValue }}" placeholder="Poor"></label>
+                    <label class="block"><span class="{{ cls_lbl }}">High label</span><input class="{{ cls_input }}" name="{{ question.maxLabelName }}" value="{{ question.maxLabelValue }}" placeholder="Excellent"></label>
+                  </div>
+                {% elsif question.isRating %}
+                  <label class="block sm:w-40"><span class="{{ cls_lbl }}">Stars</span><input type="number" min="1" max="20" class="{{ cls_input }}" name="{{ question.maxName }}" value="{{ question.maxValue }}"></label>
+                  <input type="hidden" name="{{ question.minName }}" value="{{ question.minValue }}">
+                  <input type="hidden" name="{{ question.minLabelName }}" value="{{ question.minLabelValue }}">
+                  <input type="hidden" name="{{ question.maxLabelName }}" value="{{ question.maxLabelValue }}">
+                {% else %}
+                  <input type="hidden" name="{{ question.minName }}" value="{{ question.minValue }}">
+                  <input type="hidden" name="{{ question.maxName }}" value="{{ question.maxValue }}">
+                  <input type="hidden" name="{{ question.minLabelName }}" value="{{ question.minLabelValue }}">
+                  <input type="hidden" name="{{ question.maxLabelName }}" value="{{ question.maxLabelValue }}">
+                {% endif %}
+
+                {% if question.isFile %}
+                  <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <label class="block"><span class="{{ cls_lbl }}">Accepted types <span class="font-normal text-gray-400">— blank = any allowed</span></span><input class="{{ cls_input }}" name="{{ question.acceptName }}" value="{{ question.acceptValue }}" placeholder="pdf, docx, png"></label>
+                    <label class="block"><span class="{{ cls_lbl }}">Max size (MB) <span class="font-normal text-gray-400">— up to 10</span></span><input type="number" min="1" max="10" class="{{ cls_input }}" name="{{ question.maxSizeName }}" value="{{ question.maxSizeValue }}" placeholder="10"></label>
+                  </div>
+                {% else %}
+                  <input type="hidden" name="{{ question.acceptName }}" value="{{ question.acceptValue }}">
+                  <input type="hidden" name="{{ question.maxSizeName }}" value="{{ question.maxSizeValue }}">
+                {% endif %}
+
+                <div class="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100" style="padding-top:.75rem">
+                  <input class="w-40 px-2 py-1 border border-gray-200 rounded-lg text-xs font-mono text-gray-500" name="{{ question.fieldNameName }}" value="{{ question.fieldNameValue }}" placeholder="field-name (auto)" aria-label="Field name" title="Answer column key — leave empty to derive from the label">
+                  <span class="flex items-center gap-3">
+                    <label class="flex items-center gap-2 text-xs text-gray-500">
+                      Required
+                      <select name="{{ question.requiredName }}" class="px-2 py-1 border border-gray-300 rounded-lg text-xs bg-white">
+                        <option value="no"{% unless question.requiredChecked %} selected{% endunless %}>No</option>
+                        <option value="yes"{% if question.requiredChecked %} selected{% endif %}>Yes</option>
+                      </select>
+                    </label>
+                    <span class="flex items-center gap-1 text-xs text-gray-400"><span aria-hidden="true">#</span><label for="{{ question.weightId }}" class="sr-only">{{ question.label }} order</label><input data-weight-sortable-input id="{{ question.weightId }}" type="number" name="{{ question.weightName }}" value="{{ question.weightValue }}" class="w-10 border-b border-transparent bg-transparent p-0 text-right text-sm font-bold focus:border-indigo-500 focus:outline-none"></span>
+                    {% if question.canDelete %}
+                      <button type="submit" name="action" value="{{ question.deleteAction }}" class="inline-flex h-7 w-7 items-center justify-center rounded text-gray-400 hover:bg-red-50 hover:text-red-600 cursor-pointer" title="Delete question" aria-label="Delete question"><svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><use href="/assets/icons.svg#trash"></use></svg></button>
+                    {% endif %}
+                  </span>
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+
+          <button type="submit" name="action" value="{{ block.addQuestionAction }}" class="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-3 text-sm font-semibold text-gray-700 hover:bg-gray-50 cursor-pointer">
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><use href="/assets/icons.svg#plus"></use></svg>
+            Add question
+          </button>
+
+        {% when 'form-contact' %}
+          <input class="block w-full border-0 p-0 bg-transparent text-lg font-semibold text-gray-900 focus:outline-none focus:ring-0" name="{{ block.titleName }}" value="{{ block.titleValue }}" placeholder="Contact details" aria-label="Contact section title">
+          <textarea class="block w-full border-0 p-0 bg-transparent text-sm text-gray-500 focus:outline-none focus:ring-0 resize-y" name="{{ block.bodyName }}" rows="1" placeholder="Description (optional)" aria-label="Contact section description">{{ block.bodyValue }}</textarea>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <label class="block"><span class="{{ cls_lbl }}">Name field label</span><input class="{{ cls_input }}" name="{{ block.nameLabelName }}" value="{{ block.nameLabelValue }}" placeholder="Name"></label>
+            <label class="block"><span class="{{ cls_lbl }}">Email field label</span><input class="{{ cls_input }}" name="{{ block.emailLabelName }}" value="{{ block.emailLabelValue }}" placeholder="Email"></label>
+          </div>
+          <label class="flex items-center gap-2 text-xs text-gray-500">
+            Require email
+            <select name="{{ block.requireEmailName }}" class="px-2 py-1 border border-gray-300 rounded-lg text-xs bg-white">
+              <option value="no"{% unless block.requireEmailChecked %} selected{% endunless %}>No</option>
+              <option value="yes"{% if block.requireEmailChecked %} selected{% endif %}>Yes</option>
+            </select>
+          </label>
+
+        {% when 'picture' %}
+          {% render 'snippets/pagefield/picture/basic', field: block.pictureField %}
+          <label class="block"><span class="{{ cls_lbl }}">Caption</span><input class="{{ cls_input }}" name="{{ block.captionName }}" value="{{ block.captionValue }}" placeholder="optional"></label>
+
+        {% else %}
+          <input class="block w-full border-0 p-0 bg-transparent text-lg font-semibold text-gray-900 focus:outline-none focus:ring-0" name="{{ block.subjectName }}" value="{{ block.subjectValue }}" placeholder="Title" aria-label="Text section title">
+          <textarea class="{{ cls_input }} resize-y" name="{{ block.bodyName }}" rows="3" placeholder="Text shown between questions (HTML allowed)" aria-label="Text section body">{{ block.bodyValue }}</textarea>
+        {% endcase %}
+      </div>
+    {% endfor %}
+  </div>
+
+  {%- comment -%} ── Add-block toolbar (Google Forms' side toolbar, inline) ── {%- endcomment -%}
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 px-4 py-3 flex flex-wrap items-center gap-2">
+    <svg class="h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><use href="/assets/icons.svg#plus"></use></svg>
+    <label for="block-select" class="text-sm text-gray-500">Add to form:</label>
+    <select id="block-select" name="block-select" class="px-2 py-1.5 border border-gray-300 rounded-lg text-sm bg-white">
+      {% for option in addBlockOptions %}<option value="{{ option.value }}">{{ option.label }}</option>{% endfor %}
+    </select>
+    <button type="submit" name="action" value="block-add" class="inline-block px-3 py-1.5 rounded-lg text-sm font-semibold border border-transparent bg-gray-900 text-white hover:bg-gray-700 cursor-pointer">Add</button>
+  </div>
+
+  {%- comment -%} ── Settings (confirmation page, submit button, header image) ── {%- endcomment -%}
+  <details class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+    <summary class="text-lg font-bold text-gray-900 cursor-pointer">Settings</summary>
+    <div class="space-y-4" style="padding-top:1rem">
+      <label class="block"><span class="{{ cls_lbl }}">Submit button label</span><input class="{{ cls_input }}" name="{{ buttonLabelName }}" value="{{ buttonLabelValue }}" placeholder="Submit"></label>
+      <label class="block"><span class="{{ cls_lbl }}">Confirmation heading</span><input class="{{ cls_input }}" name="{{ thankyouHeadingName }}" value="{{ thankyouHeadingValue }}" placeholder="Thank you"></label>
+      <label class="block"><span class="{{ cls_lbl }}">Confirmation message</span><textarea class="{{ cls_input }} resize-y" name="{{ thankyouBodyName }}" rows="3" placeholder="Your response has been recorded.">{{ thankyouBodyValue }}</textarea></label>
+      {% render 'snippets/pagefield/picture/basic', field: featuredImageField %}
+    </div>
+  </details>
+
+  {%- comment -%} ── Footer actions ── {%- endcomment -%}
+  <div class="flex min-w-0 flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+    <button type="submit" name="action" value="update" class="w-full px-6 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 transition-colors shadow-sm sm:w-auto">Save</button>
+    <a href="{{ backHref }}" class="w-full px-6 py-2 text-center bg-white text-gray-700 text-sm font-semibold rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors sm:w-auto">Cancel</a>
+    {% if deleteAction != blank %}
+      <button type="submit" formaction="{{ deleteAction }}" formmethod="post" data-confirm="Move this form to trash?" class="w-full px-6 py-2 bg-red-600 text-white text-sm font-semibold rounded-lg hover:bg-red-700 transition-colors shadow-sm sm:ml-auto sm:w-auto">Delete</button>
+    {% endif %}
+  </div>
+</form>
+
+<script src="/admin/plugins/form/assets/editor-scroll.js" defer></script>

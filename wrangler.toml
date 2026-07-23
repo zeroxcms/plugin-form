@@ -40,6 +40,16 @@ binding = "CF_VERSION_METADATA"
 # database_name = "cms-published"
 # database_id = "REPLACE_WITH_PUBLISHED_DB_ID"
 
+# Attachment storage for file-upload questions. Public submits write here
+# directly (validated: extension allowlist + magic bytes + size cap, see
+# src/uploads.ts); the files are NEVER served publicly — the admin downloads
+# them through /admin/plugins/form/forms/<id>/files/<key>. Leave unbound to
+# disable file questions (they render disabled and the rest of the form works):
+#   wrangler r2 bucket create cms-form-uploads
+# [[r2_buckets]]
+# binding = "UPLOADS"
+# bucket_name = "cms-form-uploads"
+
 [vars]
 # Base URL of the CMS Worker — where this plugin reaches the Plugin API
 # ({CMS_URL}/__cms/*, page read/write). In multi-tenant mode, per-tenant cmsUrl
