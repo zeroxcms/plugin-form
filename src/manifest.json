@@ -1,0 +1,51 @@
+{
+  "id": "form",
+  "name": "Form Builder",
+  "version": "0.1.0",
+  "i18n": false,
+  "hooks": ["submission"],
+  "autoPublishTypes": ["form"],
+  "nav": [
+    { "label": "Forms", "href": "forms", "roles": ["admin", "editor", "moderator"] }
+  ],
+  "permissions": [
+    { "value": "forms:view", "label": "Forms: view forms and submissions" },
+    { "value": "forms:write", "label": "Forms: create, edit and delete forms" }
+  ],
+  "credits": [
+    { "key": "create_form", "label": "Create a form", "description": "Charged when a new form page is created. Free until priced.", "charge": "page_create", "page_type": "form" },
+    { "key": "export_submissions", "label": "Export submissions", "description": "Charged per submissions CSV export. Free until priced.", "charge": "metered", "unit": "export" }
+  ],
+  "limits": [
+    { "key": "max_forms", "label": "Maximum forms", "description": "Total number of forms.", "page_type": "form", "scope": "total" },
+    { "key": "max_submissions_per_form", "label": "Submissions per form", "description": "Ingested submissions kept for a single form.", "page_type": "form_submission", "scope": "per_parent" }
+  ],
+  "contentTypes": {
+    "blueprint": {
+      "form": [
+        "@status",
+        "@button_label",
+        "@featured_image:picture",
+        "name:text/title",
+        "description:textarea",
+        "thankyou_heading:text",
+        "thankyou_body:richtext/md"
+      ],
+      "form_submission": [
+        "@form_id", "@name", "@email", "@language", "@submitted_at"
+      ]
+    },
+    "blocks": {
+      "paragraph": ["subject", "body:richtext/md"],
+      "picture": ["@picture:picture", "caption", "@width", "@align"],
+      "form-contact": ["title", "body:richtext/md", "label_name", "label_email", "@require_email:boolean"],
+      "form-inputs": [
+        "title", "body:richtext/md",
+        { "custom_input": ["@name", "@required:boolean", "@type", "label", "default_value"] }
+      ]
+    },
+    "blockLists": {
+      "form": ["paragraph", "picture", "form-contact", "form-inputs"]
+    }
+  }
+}

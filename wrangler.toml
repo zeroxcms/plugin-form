@@ -1,0 +1,50 @@
+name = "worker-cms-plugin-form"
+main = "src/index.ts"
+compatibility_date = "2026-07-14"
+compatibility_flags = ["nodejs_compat", "global_fetch_strictly_public"]
+
+# Admin view templates (LiquidJS + JSON templates, mirroring the CMS) plus the
+# public form template. The Worker runs first for every request and reads these
+# internally via the VIEWS binding, so the files are never served publicly.
+[assets]
+directory = "./views"
+binding = "VIEWS"
+run_worker_first = true
+
+[version_metadata]
+binding = "CF_VERSION_METADATA"
+
+# The CMS forwards this secret on every hook / admin call, and this plugin
+# sends it back on every Plugin API write-back call. Set it to THIS plugin's
+# dedicated secret — shown in the CMS admin under Plugins → form → Edit →
+# Shared secret:
+#   wrangler secret put PLUGIN_SECRET
+
+# ── Multi-tenant mode (several CMS hosts → this one plugin) ────────────────────
+# Bind a KV namespace and add one record per connected CMS; CMS_URL/PLUGIN_SECRET
+# then become optional (they form a legacy fallback tenant if kept):
+#   npm run kv:setup
+#   wrangler kv key put --binding TENANTS "tenant:https://cms1.example.com" \
+#     '{"secret":"<32-byte hex, unique per CMS>","signKey":"<32-byte hex>","publicBaseUrl":"https://forms1.example.com"}'
+# [[kv_namespaces]]
+# binding = "TENANTS"
+# id = "REPLACE_WITH_ID_FROM_npm_run_kv_setup"
+
+# ── Public form site (this same Worker, /f/<slug>) ─────────────────────────────
+# Published-content database — the SAME D1 the CMS publishes to (`live_pages`).
+# Public GETs read published form pages from here; public POSTs insert
+# form_submission rows (INSERT-only, negative ids — see src/submissions.ts).
+# Without this binding the admin side still works; /f/* returns 500.
+# [[d1_databases]]
+# binding = "PUBLISHED_DB"
+# database_name = "cms-published"
+# database_id = "REPLACE_WITH_PUBLISHED_DB_ID"
+
+[vars]
+# Base URL of the CMS Worker — where this plugin reaches the Plugin API
+# ({CMS_URL}/__cms/*, page read/write). In multi-tenant mode, per-tenant cmsUrl
+# comes from the TENANTS record instead.
+CMS_URL = "http://localhost:8787"
+# Public origin serving /f/<slug> (this Worker's own public domain). Shown as
+# the shareable form link in the admin dashboard.
+# PUBLIC_BASE_URL = "https://forms.example.com"

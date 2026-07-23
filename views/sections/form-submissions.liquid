@@ -1,0 +1,48 @@
+<div class="flex items-center justify-between gap-4 mb-4">
+  <div>
+    <a class="inline-block text-xs text-gray-500 mb-1 hover:text-indigo-700" href="{{ backHref }}">{{ formName }}</a>
+    <h1 class="text-2xl font-bold text-gray-900">Submissions <span class="text-gray-400 font-normal">({{ total }})</span></h1>
+  </div>
+  <div class="flex items-center gap-3">
+    {% if pullAction != blank %}
+    <form method="post" action="{{ pullAction }}"><button class="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-sm font-semibold text-gray-700 hover:bg-gray-50 cursor-pointer" type="submit">Pull new submissions</button></form>
+    {% endif %}
+    {% if exportHref != blank %}<a class="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-transparent bg-indigo-600 px-4 text-sm font-semibold text-white hover:bg-indigo-700" href="{{ exportHref }}">
+      <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><use href="/assets/icons.svg#download"></use></svg>
+      <span class="hidden lg:inline">Export CSV</span>
+    </a>{% endif %}
+  </div>
+</div>
+{% if flash != blank %}<p class="mb-4 rounded-lg bg-gray-50 border border-gray-200 px-4 py-3 text-sm text-gray-700">{{ flash }}</p>{% endif %}
+<div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-x-auto">
+  <table class="w-full min-w-[560px] text-left relative">
+    <thead class="bg-gray-50 border-b border-gray-200"><tr>
+      <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Submitted</th>
+      <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Name</th>
+      <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Email</th>
+      {% for column in columns %}<th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{{ column }}</th>{% endfor %}
+    </tr></thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for submission in submissions %}
+      <tr>
+        <td class="px-6 py-3 text-sm text-gray-500 whitespace-nowrap">{{ submission.submittedAt }}</td>
+        <td class="px-6 py-3 text-sm text-gray-700">{{ submission.name }}</td>
+        <td class="px-6 py-3 text-sm text-gray-500">{{ submission.email }}</td>
+        {% for value in submission.values %}<td class="px-6 py-3 text-sm text-gray-500">{{ value }}</td>{% endfor %}
+      </tr>
+      {% else %}
+      <tr><td colspan="{{ columns.size | plus: 3 }}" class="px-6 py-10 text-center text-sm text-gray-400">No submissions yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% if totalPages > 1 %}
+<div class="flex items-center justify-between gap-4 mt-4 text-sm text-gray-500">
+  <span>Showing {{ rangeStart }}–{{ rangeEnd }} of {{ total }}</span>
+  <div class="flex items-center gap-3">
+    {% if prevHref != blank %}<a class="text-indigo-600 font-medium hover:text-indigo-800" href="{{ prevHref }}">← Previous</a>{% endif %}
+    <span>Page {{ page }} of {{ totalPages }}</span>
+    {% if nextHref != blank %}<a class="text-indigo-600 font-medium hover:text-indigo-800" href="{{ nextHref }}">Next →</a>{% endif %}
+  </div>
+</div>
+{% endif %}

@@ -1,0 +1,25 @@
+{
+  "name": "cms-plugin-form",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "kv:setup": "cms-plugin-kv-setup",
+    "kv:setup:preview": "cms-plugin-kv-setup --preview"
+  },
+  "dependencies": {
+    "@lionrockjs/worker-cms-plugin": "0.3.2",
+    "liquidjs": "^10.27.2"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260719.1",
+    "@types/node": "^26.1.1",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10",
+    "wrangler": "^4.112.0"
+  }
+}

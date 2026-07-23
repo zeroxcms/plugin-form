@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="{{ language | escape }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{ formName | escape }}</title>
+<style>
+body{margin:0;background:#f3f4f6;font-family:system-ui,sans-serif;font-size:16px;color:#111827;line-height:1.5}
+.card{max-width:40rem;margin:3rem auto;background:#fff;padding:2rem;border-radius:.75rem;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+h1{margin-top:0;font-size:1.75rem}
+.featured-image{display:block;max-width:100%;height:auto;margin:0 0 1rem;border-radius:.5rem}
+.muted{color:#6b7280;margin-top:0}
+.error{background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;border-radius:.5rem;padding:.75rem 1rem;margin-bottom:1rem;font-size:.9rem}
+.block{margin:2rem 0}
+.block-title{font-size:1.4rem;font-weight:700;margin:0 0 .5rem}
+.body{margin-bottom:1rem}
+.body p{margin:0 0 1rem}
+label{display:block;margin:.75rem 0 .3rem;font-weight:600}
+input[type=text],input[type=email],input[type=tel],input[type=number],input[type=date],input[type=time],input[type=url],select,textarea{box-sizing:border-box;width:100%;padding:.6rem;border:1px solid #d1d5db;border-radius:.5rem;font:inherit;font-size:16px}
+.choice{display:flex;align-items:baseline;gap:.5rem;margin:.35rem 0}
+.choice label{display:inline;margin:0;font-weight:400}
+img.block-picture{max-width:100%;height:auto;border-radius:.5rem}
+.required-note{color:#6b7280;font-size:.85rem;margin-top:1rem}
+.actions{margin-top:1.5rem}
+button{border:0;border-radius:.5rem;padding:10px 25px;font:inherit;font-size:15px;font-weight:600;line-height:1.2;cursor:pointer;background:#4f46e5;color:#fff}
+button:hover{background:#4338ca}
+</style>
+</head>
+<body>
+<main class="card">
+  <h1>{{ formName | escape }}</h1>
+  {% if featuredImage != blank %}<img class="featured-image" src="{{ featuredImage | escape }}" alt="">{% endif %}
+  {% if description != blank %}<p class="muted">{{ description | escape }}</p>{% endif %}
+  {% if error != blank %}<div class="error">{{ error | escape }}</div>{% endif %}
+
+  <form method="post" action="{{ action | escape }}">
+    {%- comment -%} Honeypot: hidden from real visitors; a filled value marks the submit as a bot. {%- endcomment -%}
+    <input type="text" name="website" value="" style="position:absolute;left:-9999px;height:0;overflow:hidden" tabindex="-1" autocomplete="off" aria-hidden="true">
+
+    {% for block in blocks %}
+      {% case block.type %}
+        {% when 'paragraph' %}
+        <div class="block">
+          {% if block.subject != blank %}<div class="block-title">{{ block.subject | escape }}</div>{% endif %}
+          {% if block.bodyHtml != blank %}<div class="body">{{ block.bodyHtml }}</div>{% endif %}
+        </div>
+        {% when 'picture' %}
+        <div class="block">
+          <img class="block-picture" src="{{ block.src | escape }}" alt="{{ block.caption | escape }}"{% if block.width != blank %} width="{{ block.width | escape }}"{% endif %}>
+          {% if block.caption != blank %}<p class="muted">{{ block.caption | escape }}</p>{% endif %}
+        </div>
+        {% when 'form-contact' %}
+        <div class="block">
+          {% if block.title != blank %}<div class="block-title">{{ block.title | escape }}</div>{% endif %}
+          {% if block.bodyHtml != blank %}<div class="body">{{ block.bodyHtml }}</div>{% endif %}
+          <label for="contact-name">{{ block.nameLabel | escape }} *</label>
+          <input type="text" id="contact-name" name="contact-name" value="{{ block.nameValue | escape }}" required>
+          <label for="contact-email">{{ block.emailLabel | escape }}{% if block.requireEmail %} *{% endif %}</label>
+          <input type="email" id="contact-email" name="contact-email" value="{{ block.emailValue | escape }}"{% if block.requireEmail %} required{% endif %}>
+        </div>
+        {% when 'form-inputs' %}
+        <div class="block">
+          {% if block.title != blank %}<div class="block-title">{{ block.title | escape }}</div>{% endif %}
+          {% if block.bodyHtml != blank %}<div class="body">{{ block.bodyHtml }}</div>{% endif %}
+          {% for input in block.inputs %}
+            {% case input.type %}
+              {% when 'checkbox' %}
+              <div class="choice">
+                <input type="checkbox"
+                       id="{{ input.name | escape }}"
+                       name="{{ input.name | escape }}"
+                       value="{{ input.defaultValue | default: 'yes' | escape }}"
+                       {% if input.checked %}checked{% endif %}
+                       {% if input.required %}required{% endif %}>
+                <label for="{{ input.name | escape }}">{{ input.label | escape }}{% if input.required %} *{% endif %}</label>
+              </div>
+              {% when 'select' %}
+              <label for="{{ input.name | escape }}">{{ input.label | escape }}{% if input.required %} *{% endif %}</label>
+              <select id="{{ input.name | escape }}" name="{{ input.name | escape }}" {% if input.required %}required{% endif %}>
+                {% for option in input.options %}
+                <option value="{{ option.value | escape }}"{% if option.selected %} selected{% endif %}>{{ option.label | escape }}</option>
+                {% endfor %}
+              </select>
+              {% when 'radio' %}
+              <label>{{ input.label | escape }}{% if input.required %} *{% endif %}</label>
+              {% for option in input.options %}
+              <div class="choice">
+                <input type="radio"
+                       id="{{ input.name | escape }}-{{ forloop.index0 }}"
+                       name="{{ input.name | escape }}"
+                       value="{{ option.value | escape }}"
+                       {% if option.selected %}checked{% endif %}
+                       {% if input.required %}required{% endif %}>
+                <label for="{{ input.name | escape }}-{{ forloop.index0 }}">{{ option.label | escape }}</label>
+              </div>
+              {% endfor %}
+              {% when 'textarea' %}
+              <label for="{{ input.name | escape }}">{{ input.label | escape }}{% if input.required %} *{% endif %}</label>
+              <textarea id="{{ input.name | escape }}" name="{{ input.name | escape }}" rows="3" {% if input.required %}required{% endif %}>{{ input.value | escape }}</textarea>
+              {% when 'file' %}
+              {% else %}
+              <label for="{{ input.name | escape }}">{{ input.label | escape }}{% if input.required %} *{% endif %}</label>
+              <input type="{{ input.type | default: 'text' | escape }}"
+                     id="{{ input.name | escape }}"
+                     name="{{ input.name | escape }}"
+                     value="{{ input.value | default: input.defaultValue | escape }}"
+                     {% if input.required %}required{% endif %}>
+            {% endcase %}
+          {% endfor %}
+        </div>
+      {% endcase %}
+    {% endfor %}
+
+    <div class="required-note">* required</div>
+    <div class="actions">
+      <button type="submit">{{ buttonLabel | escape }}</button>
+    </div>
+  </form>
+</main>
+</body>
+</html>

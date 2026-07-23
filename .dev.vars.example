@@ -1,0 +1,5 @@
+# Copy to .dev.vars for local development. Both must match the HOST CMS's
+# .dev.vars (cms/.dev.vars) or every Plugin API call 403s.
+CMS_URL=http://localhost:8787
+PLUGIN_SECRET=dev-plugin-secret
+# PUBLIC_BASE_URL=http://localhost:8790

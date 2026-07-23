@@ -1,0 +1,96 @@
+<div class="flex items-center justify-between gap-4 mb-4">
+  <div>
+    <a class="inline-block text-xs text-gray-500 mb-1 hover:text-indigo-700" href="{{ formsHref }}">Forms</a>
+    <h1 class="text-2xl font-bold text-gray-900">{{ formName }}
+      {% if open %}<span class="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-800">Open</span>
+      {% else %}<span class="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-700">Closed</span>{% endif %}
+    </h1>
+  </div>
+  <div class="flex items-center gap-2">
+    {% if editHref != blank %}<a class="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-transparent bg-indigo-600 px-4 text-sm font-semibold text-white hover:bg-indigo-700" href="{{ editHref }}">
+      <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><use href="/assets/icons.svg#pencil-square"></use></svg>
+      <span class="hidden lg:inline">Edit form</span>
+    </a>{% endif %}
+    {% if statusAction != blank %}
+    <form method="post" action="{{ statusAction }}">
+      <input type="hidden" name="status" value="{{ nextStatus }}">
+      <button class="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-sm font-semibold text-gray-700 hover:bg-gray-50 cursor-pointer" type="submit">{{ statusLabel }}</button>
+    </form>
+    {% endif %}
+    {% if deleteHref != blank %}<a class="inline-flex h-10 w-10 items-center justify-center rounded-lg text-red-600 hover:bg-red-50 hover:text-red-700" title="Delete form" aria-label="Delete form" href="{{ deleteHref }}"><svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><use href="/assets/icons.svg#trash"></use></svg></a>{% endif %}
+  </div>
+</div>
+{% if flash != blank %}<p class="mb-4 rounded-lg bg-gray-50 border border-gray-200 px-4 py-3 text-sm text-gray-700">{{ flash }}</p>{% endif %}
+
+<div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-4">
+  <h2 class="text-sm font-semibold text-gray-900 mb-2">Share</h2>
+  <p class="text-sm text-gray-500 mb-2">Anyone with the link can respond while the form is open. The form must be published for the link to work.</p>
+  <p><a class="text-indigo-600 font-medium hover:text-indigo-800 break-all" href="{{ publicUrl }}" target="_blank" rel="noopener">{{ publicUrl }}</a></p>
+</div>
+
+<div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-x-auto mb-4">
+  <div class="flex items-center justify-between gap-4 px-6 py-4 border-b border-gray-200">
+    <h2 class="text-sm font-semibold text-gray-900">Questions</h2>
+  </div>
+  <table class="w-full min-w-[560px] text-left relative">
+    <thead class="bg-gray-50 border-b border-gray-200"><tr>
+      <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Label</th>
+      <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Field</th>
+      <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Type</th>
+      <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Required</th>
+    </tr></thead>
+    <tbody class="divide-y divide-gray-100">
+      {% if hasContact %}
+      <tr>
+        <td class="px-6 py-3 text-sm text-gray-700">Name / Email</td>
+        <td class="px-6 py-3 text-sm text-gray-500 font-mono">contact-name, contact-email</td>
+        <td class="px-6 py-3 text-sm text-gray-500">contact</td>
+        <td class="px-6 py-3 text-sm text-gray-500">yes</td>
+      </tr>
+      {% endif %}
+      {% for field in fields %}
+      <tr>
+        <td class="px-6 py-3 text-sm text-gray-700">{{ field.label }}</td>
+        <td class="px-6 py-3 text-sm text-gray-500 font-mono">{{ field.name }}</td>
+        <td class="px-6 py-3 text-sm text-gray-500">{{ field.type }}</td>
+        <td class="px-6 py-3 text-sm text-gray-500">{% if field.required %}yes{% else %}no{% endif %}</td>
+      </tr>
+      {% else %}
+      {% unless hasContact %}<tr><td colspan="4" class="px-6 py-10 text-center text-sm text-gray-400">No questions yet — open the editor to add blocks.</td></tr>{% endunless %}
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-x-auto">
+  <div class="flex items-center justify-between gap-4 px-6 py-4 border-b border-gray-200">
+    <h2 class="text-sm font-semibold text-gray-900">Submissions <span class="text-gray-400 font-normal">({{ submissionsTotal }})</span></h2>
+    <div class="flex items-center gap-3">
+      {% if pullAction != blank %}
+      <form method="post" action="{{ pullAction }}"><button class="text-sm text-indigo-600 font-medium hover:text-indigo-800 cursor-pointer" type="submit">Pull new submissions</button></form>
+      {% endif %}
+      <a class="text-sm text-indigo-600 font-medium hover:text-indigo-800" href="{{ submissionsHref }}">View all</a>
+      {% if exportHref != blank %}<a class="text-sm text-indigo-600 font-medium hover:text-indigo-800" href="{{ exportHref }}">Export CSV</a>{% endif %}
+    </div>
+  </div>
+  <table class="w-full min-w-[560px] text-left relative">
+    <thead class="bg-gray-50 border-b border-gray-200"><tr>
+      <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Submitted</th>
+      <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Name</th>
+      <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Email</th>
+      {% for column in recentColumns %}<th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{{ column }}</th>{% endfor %}
+    </tr></thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for submission in recentSubmissions %}
+      <tr>
+        <td class="px-6 py-3 text-sm text-gray-500 whitespace-nowrap">{{ submission.submittedAt }}</td>
+        <td class="px-6 py-3 text-sm text-gray-700">{{ submission.name }}</td>
+        <td class="px-6 py-3 text-sm text-gray-500">{{ submission.email }}</td>
+        {% for value in submission.values %}<td class="px-6 py-3 text-sm text-gray-500">{{ value }}</td>{% endfor %}
+      </tr>
+      {% else %}
+      <tr><td colspan="{{ recentColumns.size | plus: 3 }}" class="px-6 py-10 text-center text-sm text-gray-400">No submissions yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
