@@ -368,7 +368,18 @@ describe('form edit view', () => {
     });
   }
 
+  /** Stubs the editor's live-status probe (GET /pages/:id?include_live_status=1). */
+  function stubLiveStatus(isPublished: boolean) {
+    return stubCms((method, url) => {
+      if (method === 'GET' && url.pathname === '/__cms/pages/301' && url.searchParams.get('include_live_status') === '1') {
+        return Response.json({ page: { ...cmsFormPage(), isPublished } });
+      }
+      return null;
+    });
+  }
+
   it('renders question cards posting the CMS block field grammar', async () => {
+    stubLiveStatus(false);
     const response = await plugin.fetch(editRequest(editContext()), env());
     expect(response.status).toBe(200);
     expect(response.headers.get('x-cms-client-view')).toBe('1');
@@ -390,6 +401,9 @@ describe('form edit view', () => {
     // Radio question: options textarea shows one option per line.
     expect(html).toContain('name="#1.custom_input[0].default_value|en"');
     expect(html).toContain('1:Bad\n5:Great');
+    // Publishing is what makes the form visible to worker-form; a plain save
+    // only republishes a form that is already live.
+    expect(html).toContain('name="action" value="publish"');
     // Structured block operations (server round-trips, no JS required).
     expect(html).toContain('value="block-item-add:1|custom_input"');
     expect(html).toContain('value="block-item-delete:1|custom_input|0"');
@@ -397,6 +411,22 @@ describe('form edit view', () => {
     expect(html).toContain('value="block-delete:0"');
     // Approved-asset enhancement (scroll restore + drag reorder).
     expect(html).toContain('/admin/plugins/form/assets/editor-scroll.js');
+  });
+
+  it('offers Unpublish (not Publish) once the form is live', async () => {
+    stubLiveStatus(true);
+    const html = await renderedText(await plugin.fetch(editRequest(editContext()), env()));
+    expect(html).toContain('/admin/pages/301/unpublish');
+    expect(html).toContain('Unpublish');
+    expect(html).not.toContain('name="action" value="publish"');
+  });
+
+  it('falls back to Publish when the live state cannot be read', async () => {
+    // No CMS stub: the probe fetch fails, so the editor must not guess Unpublish.
+    stubCms(() => null);
+    const html = await renderedText(await plugin.fetch(editRequest(editContext()), env()));
+    expect(html).toContain('name="action" value="publish"');
+    expect(html).not.toContain('/admin/pages/301/unpublish');
   });
 
   it('declines other page types so the CMS falls back to its editor', async () => {
@@ -465,6 +495,10 @@ describe('question types', () => {
 
   it('offers every new type in the editor and shows its config panel', async () => {
     const lect = richLect();
+    stubCms((method, url) => {
+      if (method === 'GET' && url.pathname === '/__cms/pages/301') return Response.json({ page: { ...cmsFormPage(), isPublished: false } });
+      return null;
+    });
     const response = await plugin.fetch(adminRequest('/__plugin/edit', {
       method: 'POST',
       body: JSON.stringify({

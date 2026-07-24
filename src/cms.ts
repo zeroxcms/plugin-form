@@ -111,6 +111,24 @@ export class CmsClient extends BaseCmsClient {
   }
 
   /**
+   * One page plus whether it is currently live (CMS
+   * `GET /pages/:id?include_live_status=1`). The base client's `get` omits the
+   * flag, and the editor needs it: a form that is not in `live_pages` is
+   * invisible to worker-form, so the editor must offer Publish rather than
+   * Unpublish.
+   */
+  async getWithLiveStatus(id: number): Promise<CmsPage & { isPublished: boolean }> {
+    const path = `/pages/${id}?include_live_status=1`;
+    const response = await globalThis.fetch(`${this.link.base}/__cms${path}`, { headers: this.linkHeaders() });
+    if (!response.ok) {
+      const code = await response.text().then((text) => text.trim().slice(0, 160) || 'error').catch(() => 'error');
+      throw new CmsApiError(response.status, code, 'GET', path);
+    }
+    const { page } = await response.json() as { page: CmsPage & { isPublished?: boolean } };
+    return { ...page, isPublished: page.isPublished === true };
+  }
+
+  /**
    * Asks the host to pull live-only submission rows (published DB → draft
    * pages) NOW instead of waiting for its cron tick (CMS
    * `POST /__cms/ingest/submissions`). Idempotent and bounded per call; each

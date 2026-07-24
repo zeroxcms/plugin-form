@@ -97,11 +97,16 @@ export default {
     // Plugin-rendered page editor (manifest `editViews: ["form"]`). The CMS
     // POSTs the editor context; we return the Google-Forms-style editor as a
     // client view the CMS wraps in its admin chrome. The editor's form posts
-    // back to the CMS's own save handler, so no CMS client is needed here.
+    // back to the CMS's own save handler, so the only thing we ask the CMS
+    // for is whether the page is live — which decides Publish vs Unpublish.
     if (path === '/__plugin/edit' && request.method === 'POST') {
       const access = formAdminAccessForRequest(request);
       if (!access.canEdit) return forbidden();
-      return handleFormEditView(request);
+      // Read the context off a clone so the original body is still there for
+      // the view renderer.
+      const pageId = pageIdFromContext(await request.clone().json().catch(() => null));
+      const published = pageId === null ? null : await livePublishState(env, request, pageId);
+      return handleFormEditView(request, published);
     }
 
     if (path.startsWith('/__plugin/admin')) {
@@ -112,6 +117,31 @@ export default {
     return new Response('not found', { status: 404 });
   },
 };
+
+// ── Editor helpers ────────────────────────────────────────────────────────────
+
+/** The page id out of the editor context the CMS POSTs, when editing. */
+function pageIdFromContext(context: unknown): number | null {
+  if (!context || typeof context !== 'object') return null;
+  const page = (context as { page?: { id?: unknown } }).page;
+  const id = Number(page?.id);
+  return Number.isFinite(id) && id > 0 ? id : null;
+}
+
+/**
+ * Whether the page is currently in the published DB. Best-effort: an
+ * unconfigured or unhappy CMS link yields `null`, and the editor falls back to
+ * offering Publish — never a wrong Unpublish button.
+ */
+async function livePublishState(env: PluginEnv, request: Request, pageId: number): Promise<boolean | null> {
+  try {
+    const cms = new CmsClient(env).actAs(cmsUserId(request));
+    return (await cms.getWithLiveStatus(pageId)).isPublished;
+  } catch (error) {
+    console.error('[form-builder] live publish state unavailable', error);
+    return null;
+  }
+}
 
 // ── Admin router ──────────────────────────────────────────────────────────────
 

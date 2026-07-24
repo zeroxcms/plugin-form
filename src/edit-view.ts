@@ -20,6 +20,14 @@
 // Add/delete/reorder are full server round-trips through the CMS save
 // handler (no client JS required); the optional editor-scroll.js asset
 // restores the scroll position and enables drag-reorder of question rows.
+//
+//   action=publish             saves AND publishes (host route) — the only way
+//                              to get a new form into live_pages, where
+//                              worker-form can serve it.
+//   formaction=…/unpublish     takes a live form offline (host route).
+//
+// Which of the two the footer shows comes from `isPublished`, resolved in
+// index.ts before this view renders; the plugin itself performs neither.
 // ============================================================
 
 import { attr, items } from './cms';
@@ -75,7 +83,13 @@ interface PageFieldVM {
   required: boolean;
 }
 
-export async function handleFormEditView(request: Request): Promise<Response> {
+/**
+ * @param isPublished whether the page is currently in the published DB, so the
+ *   editor can offer Publish or Unpublish. `null` when the CMS could not be
+ *   asked — the editor then offers Publish, the safe default (publishing an
+ *   already-live form just republishes it).
+ */
+export async function handleFormEditView(request: Request, isPublished: boolean | null = null): Promise<Response> {
   const ctx = (await request.json().catch(() => null)) as EditViewContext | null;
   if (!ctx || ctx.pageType !== 'form') return new Response('not found', { status: 404 });
 
@@ -115,8 +129,15 @@ export async function handleFormEditView(request: Request): Promise<Response> {
     thankyouBodyName: `.thankyou_body|${lang}`,
     thankyouBodyValue: locExact(lect, 'thankyou_body', lang),
     featuredImageField: pageField('@featured_image', 'Header image', attr(lect, 'featured_image')),
-    // Actions.
+    // Actions. Publish/Unpublish are the host's own routes: `action=publish`
+    // rides the main form's save handler, while unpublish is a formaction POST
+    // (formnovalidate, so a half-filled question can't block it). Both return
+    // to this editor, so the pair of buttons flips after either one.
     deleteAction: isEdit ? `/admin/pages/${ctx.page.id}/delete` : '',
+    published: isEdit && isPublished === true,
+    unpublishAction: isEdit && isPublished === true
+      ? `/admin/pages/${ctx.page.id}/unpublish?return_to=${encodeURIComponent(`/admin/pages/${ctx.page.id}/edit`)}`
+      : '',
   });
 }
 

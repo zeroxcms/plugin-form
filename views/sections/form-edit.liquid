@@ -3,8 +3,13 @@
   pages and wrapped in the CMS admin chrome. The single <form id="main-form">
   posts back to the CMS save handler at {{ action }} using the CMS field-name
   conventions (@attr, .field|lang, #<block>…, and the block-add /
-  block-delete / block-item-* actions) — save, versioning and auto-publish
-  stay host-side. Styling uses only utilities the host CMS emits
+  block-delete / block-item-* actions) — save, versioning and publishing all
+  stay host-side. `action=publish` is what puts the form in live_pages, where
+  worker-form can see it; plain saves only auto-republish a form that is
+  already live, so a new form stays invisible until it is published once. The
+  footer shows Publish or Unpublish from `published` (the live state the plugin
+  probed via the CMS), both hitting the host's own routes.
+  Styling uses only utilities the host CMS emits
   (host-subset Tailwind) plus inline styles for the accent strip.
   Add/remove/reorder work without JS (server round-trips); the approved
   editor-scroll.js asset adds scroll restoration and drag-reorder.
@@ -36,6 +41,26 @@
         <svg class="h-4 w-4" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true"><use href="/assets/icons.svg#check-circle"></use></svg>
         Save
       </button>
+      {% if isEdit %}
+        {%- comment -%}
+          Not live → Publish (saves AND publishes; until a form is live its
+          public link 404s). Live → Unpublish, since an ordinary Save already
+          republishes. formnovalidate: unpublishing must not be blocked by a
+          half-filled question.
+        {%- endcomment -%}
+        {% if published %}
+          {%- comment -%} No data-confirm: the host reads it off the form, not the
+             button, so a button-level confirm never fires — and unpublish is
+             reversible with one Publish click anyway. {%- endcomment -%}
+          <button type="submit" formaction="{{ unpublishAction }}" formnovalidate class="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-transparent bg-yellow-600 px-4 text-sm font-semibold text-white hover:bg-yellow-700 cursor-pointer">
+            Unpublish
+          </button>
+        {% else %}
+          <button type="submit" name="action" value="publish" class="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-transparent bg-green-600 px-4 text-sm font-semibold text-white hover:bg-green-700 cursor-pointer">
+            Publish
+          </button>
+        {% endif %}
+      {% endif %}
     </div>
   </div>
 
@@ -230,6 +255,13 @@
   {%- comment -%} ── Footer actions ── {%- endcomment -%}
   <div class="flex min-w-0 flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
     <button type="submit" name="action" value="update" class="w-full px-6 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 transition-colors shadow-sm sm:w-auto">Save</button>
+    {% if isEdit %}
+      {% if published %}
+        <button type="submit" formaction="{{ unpublishAction }}" formnovalidate class="w-full px-6 py-2 bg-yellow-600 text-white text-sm font-semibold rounded-lg hover:bg-yellow-700 transition-colors shadow-sm sm:w-auto">Unpublish</button>
+      {% else %}
+        <button type="submit" name="action" value="publish" class="w-full px-6 py-2 bg-green-600 text-white text-sm font-semibold rounded-lg hover:bg-green-700 transition-colors shadow-sm sm:w-auto">Publish</button>
+      {% endif %}
+    {% endif %}
     <a href="{{ backHref }}" class="w-full px-6 py-2 text-center bg-white text-gray-700 text-sm font-semibold rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors sm:w-auto">Cancel</a>
     {% if deleteAction != blank %}
       <button type="submit" formaction="{{ deleteAction }}" formmethod="post" data-confirm="Move this form to trash?" class="w-full px-6 py-2 bg-red-600 text-white text-sm font-semibold rounded-lg hover:bg-red-700 transition-colors shadow-sm sm:ml-auto sm:w-auto">Delete</button>

@@ -76,8 +76,23 @@ that form. Without the binding, the admin side still works; file answers just
 show as text.
 
 "New form" seeds a starter contact block + one sample question, then opens the
-page editor. `form` is in `autoPublishTypes`, so saving publishes the page and
-the public link works immediately.
+page editor.
+
+### Publishing
+
+worker-form only sees forms that are in `live_pages`, so a new form must be
+**published once** before its link works — the editor's green **Publish**
+button (`action=publish`, handled by the host's own save handler). After that,
+`form` being in `autoPublishTypes` means every ordinary Save republishes it
+automatically: the host's auto-republish only fires for a page that is already
+live (`cms/src/routes/admin/pages.ts`).
+
+The editor shows **Publish** or **Unpublish** depending on live state: on open
+it asks the host `GET /pages/:id?include_live_status=1`, and a live form gets
+the yellow **Unpublish** button instead (host `/admin/pages/:id/unpublish`),
+which takes the public link offline. If the CMS can't be reached the editor
+falls back to Publish — never a wrong Unpublish. Both are the host's own
+publish routes; the plugin only decides which button to show.
 
 ## Submission flow
 
