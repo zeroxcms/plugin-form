@@ -27,7 +27,7 @@ binding = "CF_VERSION_METADATA"
 # legacy single-tenant fallback.
 [[kv_namespaces]]
 binding = "TENANTS"
-id = "ed24dc375293421ebf5cbc937308ecfa"
+id = "8fba81cbe99247c2a69f1983ca90ee1e"
 
 # ── Attachments (read side) ───────────────────────────────────────────────────
 # The SAME bucket worker-form writes file-upload answers to. Bind it to let the
