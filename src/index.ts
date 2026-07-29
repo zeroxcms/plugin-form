@@ -19,9 +19,11 @@ import {
 } from './cms';
 import { handleFormEditView } from './edit-view';
 import { handleFormsAdmin, type FormsEnv } from './forms';
-import { cmsUserId, formAdminAccessForRequest, forbidden } from './permissions';
-import { adminView } from './templates/views';
+import { formAdminAccessForRequest, forbidden } from './permissions';
 import {
+  adminView,
+  handleTenantEnroll,
+  handleTenantRevoke,
   redirect,
   requireTenant,
   serveViewAsset,
@@ -39,6 +41,8 @@ interface PluginEnv extends FormsEnv {
   /** Multi-tenant registry: `tenant:<cms origin>` → TenantConfig JSON. When
    *  unbound, CMS_URL + PLUGIN_SECRET form the single legacy tenant. */
   TENANTS?: KVNamespace;
+  /** Optional comma-separated allowlist for automatic tenant enrollment. */
+  TENANT_ENROLL_ORIGINS?: string;
   /** Plugin-owned Liquid templates and other view assets. */
   VIEWS: Fetcher;
   /** Deploy identifier exposed in the manifest to invalidate cached views. */
@@ -49,6 +53,16 @@ export default {
   async fetch(request: Request, baseEnv: PluginEnv): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;
+
+    // These SDK handlers implement the auto-tenant protocol advertised by the
+    // manifest. Enrollment proves control by redeeming a short-lived ticket at
+    // the claimed CMS origin; revocation authenticates the tenant being removed.
+    if (path === '/__plugin/tenants/enroll') {
+      return handleTenantEnroll(request, baseEnv, { pluginId: MANIFEST.id });
+    }
+    if (path === '/__plugin/tenants/revoke') {
+      return handleTenantRevoke(request, baseEnv);
+    }
 
     // Secret-authenticated host calls resolve their tenant (x-cms-tenant +
     // x-plugin-secret verified against the SAME registry row), then all
@@ -105,7 +119,7 @@ export default {
       // Read the context off a clone so the original body is still there for
       // the view renderer.
       const pageId = pageIdFromContext(await request.clone().json().catch(() => null));
-      const published = pageId === null ? null : await livePublishState(env, request, pageId);
+      const published = pageId === null ? null : await livePublishState(env, pageId);
       return handleFormEditView(request, published);
     }
 
@@ -133,9 +147,9 @@ function pageIdFromContext(context: unknown): number | null {
  * unconfigured or unhappy CMS link yields `null`, and the editor falls back to
  * offering Publish — never a wrong Unpublish button.
  */
-async function livePublishState(env: PluginEnv, request: Request, pageId: number): Promise<boolean | null> {
+async function livePublishState(env: PluginEnv, pageId: number): Promise<boolean | null> {
   try {
-    const cms = new CmsClient(env).actAs(cmsUserId(request));
+    const cms = new CmsClient(env);
     return (await cms.getWithLiveStatus(pageId)).isPublished;
   } catch (error) {
     console.error('[form-builder] live publish state unavailable', error);
@@ -175,9 +189,7 @@ async function handleAdmin(request: Request, env: PluginEnv, url: URL): Promise<
 
   let cms: CmsClient;
   try {
-    // Attribute all CMS writes in this request to the signed-in admin, so
-    // host-side credit costs land on their balance.
-    cms = new CmsClient(env).actAs(cmsUserId(request));
+    cms = new CmsClient(env);
   } catch (error) {
     if (error instanceof CmsNotConfiguredError) return errorPanel(env.VIEWS, error.message, true, jsonOnly);
     throw error;
@@ -200,14 +212,6 @@ async function handleAdmin(request: Request, env: PluginEnv, url: URL): Promise<
         return errorPanel(
           env.VIEWS,
           'A configured limit has been reached, so nothing was created. Remove existing items, or ask an administrator to raise the limit under Plugins → Limits.',
-          false,
-          jsonOnly,
-        );
-      }
-      if (error.code === 'insufficient_credits') {
-        return errorPanel(
-          env.VIEWS,
-          'You do not have enough credits for this action, so nothing was changed. Check your balance on your profile page, or ask an administrator to top it up.',
           false,
           jsonOnly,
         );

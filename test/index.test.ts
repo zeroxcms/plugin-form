@@ -3,11 +3,12 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { clearTenantCache } from '@lionrockjs/worker-cms-plugin';
 import worker from '../src/index';
-import { renderView } from '../src/templates/liquid';
 
 interface PluginEnv {
   CMS_URL?: string;
   PLUGIN_SECRET?: string;
+  TENANTS?: KVNamespace;
+  TENANT_ENROLL_ORIGINS?: string;
   PUBLIC_BASE_URL?: string;
   UPLOADS?: R2Bucket;
   VIEWS: Fetcher;
@@ -40,12 +41,43 @@ function views(): Fetcher {
   } as Fetcher;
 }
 
-async function renderedText(response: Response): Promise<string> {
-  if (response.headers.get('x-cms-client-view') !== '1') return response.text();
+async function clientViewData(response: Response): Promise<{
+  viewPath: string;
+  data: Record<string, unknown>;
+}> {
+  expect(response.headers.get('x-cms-client-view')).toBe('1');
   const viewPath = response.headers.get('x-cms-view-path');
   if (!viewPath) throw new Error('Missing x-cms-view-path');
-  const data = await response.clone().json() as Record<string, unknown>;
-  return renderView(views(), viewPath, data);
+  return {
+    viewPath,
+    data: await response.json() as Record<string, unknown>,
+  };
+}
+
+async function viewSource(viewPath: string): Promise<string> {
+  return readFile(fileURLToPath(new URL(`../views${viewPath}`, import.meta.url).href), 'utf8');
+}
+
+/**
+ * Unit-test the same boundary worker-cms consumes: response data plus the
+ * plugin-owned template sources it resolves and renders in the host pipeline.
+ */
+async function clientViewContractText(response: Response): Promise<string> {
+  if (response.headers.get('x-cms-client-view') !== '1') return response.text();
+  const { viewPath, data } = await clientViewData(response);
+  const template = await viewSource(viewPath);
+  const sources = [JSON.stringify(data), template];
+  if (viewPath.endsWith('.json')) {
+    const definition = JSON.parse(template) as {
+      sections?: Record<string, { type?: string }>;
+      order?: string[];
+    };
+    for (const key of definition.order ?? []) {
+      const type = definition.sections?.[key]?.type;
+      if (type) sources.push(await viewSource(`/sections/${type}.liquid`));
+    }
+  }
+  return sources.join('\n');
 }
 
 function env(overrides: Partial<PluginEnv> = {}): PluginEnv {
@@ -55,6 +87,31 @@ function env(overrides: Partial<PluginEnv> = {}): PluginEnv {
     PLUGIN_SECRET: 'shared-secret',
     ...overrides,
   };
+}
+
+function fakeTenantKv(): KVNamespace & { store: Map<string, string> } {
+  const store = new Map<string, string>();
+  return {
+    store,
+    async list({ prefix = '' }: { prefix?: string } = {}) {
+      return {
+        keys: [...store.keys()].filter((key) => key.startsWith(prefix)).map((name) => ({ name })),
+        list_complete: true,
+        cacheStatus: null,
+      };
+    },
+    async get(key: string, type?: string) {
+      const value = store.get(key);
+      if (value === undefined) return null;
+      return type === 'json' ? JSON.parse(value) : value;
+    },
+    async put(key: string, value: string) {
+      store.set(key, value);
+    },
+    async delete(key: string) {
+      store.delete(key);
+    },
+  } as unknown as KVNamespace & { store: Map<string, string> };
 }
 
 function adminRequest(path: string, init: RequestInit = {}): Request {
@@ -149,14 +206,76 @@ describe('plugin contract', () => {
   it('serves the manifest', async () => {
     const response = await plugin.fetch(new Request('https://form.test/__plugin/manifest'), env());
     expect(response.status).toBe(200);
-    const manifest = await response.json() as { id: string; contentTypes: { blueprint: Record<string, unknown> } };
+    const manifest = await response.json() as {
+      id: string;
+      autoTenant: boolean;
+      credits?: unknown;
+      contentTypes: { blueprint: Record<string, unknown> };
+    };
     expect(manifest.id).toBe('form');
+    expect(manifest.autoTenant).toBe(true);
+    expect(manifest.credits).toBeUndefined();
     expect(Object.keys(manifest.contentTypes.blueprint)).toEqual(['form', 'form_submission']);
+  });
+
+  it('automatically enrolls and revokes a CMS tenant', async () => {
+    const cmsOrigin = 'https://cms.example.com';
+    const ticket = 't'.repeat(64);
+    const secret = 's'.repeat(64);
+    const tenants = fakeTenantKv();
+    const tenantEnv = env({ CMS_URL: undefined, PLUGIN_SECRET: undefined, TENANTS: tenants });
+
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      expect(String(input)).toBe(`${cmsOrigin}/__cms/tenant/claim`);
+      return Response.json({
+        tenant: cmsOrigin,
+        cms_url: cmsOrigin,
+        plugin_id: 'form',
+        secret,
+      });
+    }));
+
+    const enrolled = await plugin.fetch(new Request('https://form.test/__plugin/tenants/enroll', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ tenant: cmsOrigin, plugin_id: 'form', ticket }),
+    }), tenantEnv);
+    expect(enrolled.status).toBe(200);
+    expect(tenants.store.has(`tenant:${cmsOrigin}`)).toBe(true);
+
+    const revoked = await plugin.fetch(new Request('https://form.test/__plugin/tenants/revoke', {
+      method: 'POST',
+      headers: {
+        'x-cms-tenant': cmsOrigin,
+        'x-plugin-secret': secret,
+      },
+    }), tenantEnv);
+    expect(revoked.status).toBe(200);
+    expect(tenants.store.has(`tenant:${cmsOrigin}`)).toBe(false);
   });
 
   it('rejects admin calls without the shared secret', async () => {
     const response = await plugin.fetch(new Request('https://form.test/__plugin/admin/forms'), env());
     expect(response.status).toBe(403);
+  });
+
+  it('serves templates for the worker-cms rendering pipeline', async () => {
+    const template = await plugin.fetch(
+      new Request('https://form.test/__plugin/views/templates/forms.json'),
+      env(),
+    );
+    expect(template.status).toBe(200);
+    expect(await template.json()).toMatchObject({
+      sections: { main: { type: 'forms' } },
+      order: ['main'],
+    });
+
+    const section = await plugin.fetch(
+      new Request('https://form.test/__plugin/views/sections/forms.liquid'),
+      env(),
+    );
+    expect(section.status).toBe(200);
+    expect(await section.text()).toContain('{% for form in forms %}');
   });
 
   it('acknowledges submission hooks', async () => {
@@ -181,7 +300,7 @@ describe('forms admin', () => {
 
     const response = await plugin.fetch(adminRequest('/__plugin/admin/forms'), env());
     expect(response.status).toBe(200);
-    const html = await renderedText(response);
+    const html = await clientViewContractText(response);
     expect(html).toContain('Feedback');
     expect(html).toContain('/admin/plugins/form/forms/301');
     expect(html).toContain('Open');
@@ -251,7 +370,7 @@ describe('forms admin', () => {
       env({ PUBLIC_BASE_URL: 'https://forms.example.com' }),
     );
     expect(response.status).toBe(200);
-    const html = await renderedText(response);
+    const html = await clientViewContractText(response);
     expect(html).toContain('https://forms.example.com/f/feedback-abc123');
     expect(html).toContain('form-rating');
     expect(html).toContain('ada@example.com');
@@ -327,7 +446,7 @@ describe('forms admin', () => {
 
     const response = await plugin.fetch(adminRequest('/__plugin/admin/forms/999'), env());
     expect(response.status).toBe(200);
-    const html = await renderedText(response);
+    const html = await clientViewContractText(response);
     expect(html).toContain('CMS responded');
     expect(html).toContain('404');
   });
@@ -383,50 +502,70 @@ describe('form edit view', () => {
     const response = await plugin.fetch(editRequest(editContext()), env());
     expect(response.status).toBe(200);
     expect(response.headers.get('x-cms-client-view')).toBe('1');
-    const html = await renderedText(response);
+    const html = await clientViewContractText(response);
 
     // Page basics post back to the CMS save handler.
-    expect(html).toContain('action="/admin/pages/301/edit"');
-    expect(html).toContain('name="name" value="Feedback"');
-    expect(html).toContain('name="slug" value="feedback-abc123"');
-    expect(html).toContain('name="@status"');
+    expect(html).toContain('"action":"/admin/pages/301/edit"');
+    expect(html).toContain('"name":"Feedback"');
+    expect(html).toContain('"slug":"feedback-abc123"');
+    expect(html).toContain('"statusName":"@status"');
 
     // The contact block (index 0) and questions block (index 1) keep their
     // array indices in the field names.
-    expect(html).toContain('name="#0@_type" value="form-contact"');
-    expect(html).toContain('name="#0.label_name|en"');
-    expect(html).toContain('name="#1@_type" value="form-inputs"');
-    expect(html).toContain('name="#1.custom_input[0].label|en" value="Rating"');
-    expect(html).toContain('name="#1.custom_input[0]@type"');
+    expect(html).toContain('"typeFieldName":"#0@_type"');
+    expect(html).toContain('"nameLabelName":"#0.label_name|en"');
+    expect(html).toContain('"typeFieldName":"#1@_type"');
+    expect(html).toContain('"labelName":"#1.custom_input[0].label|en"');
+    expect(html).toContain('"labelValue":"Rating"');
+    expect(html).toContain('"typeName":"#1.custom_input[0]@type"');
     // Radio question: options textarea shows one option per line.
-    expect(html).toContain('name="#1.custom_input[0].default_value|en"');
-    expect(html).toContain('1:Bad\n5:Great');
+    expect(html).toContain('"optionsName":"#1.custom_input[0].default_value|en"');
+    expect(html).toContain('1:Bad\\n5:Great');
     // Publishing is what makes the form visible to worker-form; a plain save
     // only republishes a form that is already live.
     expect(html).toContain('name="action" value="publish"');
     // Structured block operations (server round-trips, no JS required).
-    expect(html).toContain('value="block-item-add:1|custom_input"');
-    expect(html).toContain('value="block-item-delete:1|custom_input|0"');
+    expect(html).toContain('block-item-add:1|custom_input');
+    expect(html).toContain('block-item-delete:1|custom_input|0');
     expect(html).toContain('value="block-add"');
-    expect(html).toContain('value="block-delete:0"');
+    expect(html).toContain('block-delete:0');
     // Approved-asset enhancement (scroll restore + drag reorder).
     expect(html).toContain('/admin/plugins/form/assets/editor-scroll.js');
   });
 
+  it('renders the co-authoring presence bar when the host injects cmsEditPresence', async () => {
+    stubLiveStatus(false);
+    const response = await plugin.fetch(editRequest(editContext()), env());
+    const { viewPath, data } = await clientViewData(response);
+
+    // Presence is host-owned context, not data the plugin should forge.
+    expect(data.cmsEditPresence).toBeUndefined();
+    expect(viewPath).toBe('/sections/form-edit.liquid');
+
+    // The host resolves page id / user / avatar into cmsEditPresence for
+    // edit-mode client views. Verify the Liquid contract worker-cms renders.
+    const template = await viewSource(viewPath);
+    expect(template).toContain('{% if cmsEditPresence.pageId != blank %}');
+    expect(template).toContain('id="presence-bar"');
+    expect(template).toContain('data-page-id="{{ cmsEditPresence.pageId }}"');
+    expect(template).toContain('data-user-id="{{ cmsEditPresence.currentUserId }}"');
+    expect(template).toContain('id="presence-avatars"');
+    expect(template).toContain('id="sync-indicator"');
+  });
+
   it('offers Unpublish (not Publish) once the form is live', async () => {
     stubLiveStatus(true);
-    const html = await renderedText(await plugin.fetch(editRequest(editContext()), env()));
-    expect(html).toContain('/admin/pages/301/unpublish');
-    expect(html).toContain('Unpublish');
-    expect(html).not.toContain('name="action" value="publish"');
+    const { data } = await clientViewData(await plugin.fetch(editRequest(editContext()), env()));
+    expect(data.published).toBe(true);
+    expect(data.unpublishAction).toContain('/admin/pages/301/unpublish');
   });
 
   it('falls back to Publish when the live state cannot be read', async () => {
     // No CMS stub: the probe fetch fails, so the editor must not guess Unpublish.
     stubCms(() => null);
-    const html = await renderedText(await plugin.fetch(editRequest(editContext()), env()));
-    expect(html).toContain('name="action" value="publish"');
-    expect(html).not.toContain('/admin/pages/301/unpublish');
+    const { data } = await clientViewData(await plugin.fetch(editRequest(editContext()), env()));
+    expect(data.published).toBe(false);
+    expect(data.unpublishAction).toBe('');
   });
 
   it('declines other page types so the CMS falls back to its editor', async () => {
@@ -512,23 +651,38 @@ describe('question types', () => {
       }),
       headers: { 'content-type': 'application/json' },
     }), env());
-    const html = await renderedText(response);
-
-    for (const label of ['Checkboxes', 'File upload', 'Linear scale', 'Rating', 'Multiple choice grid', 'Checkbox grid']) {
-      expect(html).toContain(label);
-    }
+    const { data } = await clientViewData(response);
+    const blocks = data.blocks as Array<{ questions?: Array<Record<string, unknown>> }>;
+    const questions = blocks[0]?.questions ?? [];
+    const labels = questions.flatMap((question) =>
+      (question.typeOptions as Array<{ label: string }>).map((option) => option.label));
+    expect(labels).toEqual(expect.arrayContaining([
+      'Checkboxes',
+      'File upload',
+      'Linear scale',
+      'Rating',
+      'Multiple choice grid',
+      'Checkbox grid',
+    ]));
     // Grid question: options panel is relabelled "Columns" and gains Rows.
-    expect(html).toContain('Columns');
-    expect(html).toContain('name="#0.custom_input[3].rows|mis"');
-    expect(html).toContain('Food\nSeating');
+    expect(questions[3]).toMatchObject({
+      isGrid: true,
+      optionsLabel: 'Columns',
+      rowsName: '#0.custom_input[3].rows|mis',
+      rowsValue: 'Food\nSeating',
+    });
     // Scale bounds and labels, rating stars, file constraints.
-    expect(html).toContain('name="#0.custom_input[1]@min"');
-    expect(html).toContain('name="#0.custom_input[1].max_label|mis"');
-    expect(html).toContain('name="#0.custom_input[2]@max"');
-    expect(html).toContain('name="#0.custom_input[5]@accept"');
-    expect(html).toContain('name="#0.custom_input[5]@max_size"');
+    expect(questions[1]).toMatchObject({
+      minName: '#0.custom_input[1]@min',
+      maxLabelName: '#0.custom_input[1].max_label|mis',
+    });
+    expect(questions[2]).toMatchObject({ maxName: '#0.custom_input[2]@max' });
+    expect(questions[5]).toMatchObject({
+      acceptName: '#0.custom_input[5]@accept',
+      maxSizeName: '#0.custom_input[5]@max_size',
+    });
     // Config a question's type doesn't currently show still round-trips.
-    expect(html).toContain('type="hidden" name="#0.custom_input[0].rows|mis"');
+    expect(questions[0]).toMatchObject({ rowsName: '#0.custom_input[0].rows|mis' });
   });
 });
 
@@ -618,7 +772,7 @@ describe('file upload answers', () => {
     });
 
     const table = await plugin.fetch(adminRequest('/__plugin/admin/forms/301/submissions'), env());
-    const html = await renderedText(table);
+    const html = await clientViewContractText(table);
     expect(html).toContain('/admin/plugins/form/forms/301/files/form-301/');
     expect(html).toContain('cv.pdf');
 

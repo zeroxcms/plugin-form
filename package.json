@@ -12,8 +12,7 @@
     "kv:setup:preview": "cms-plugin-kv-setup --preview"
   },
   "dependencies": {
-    "@lionrockjs/worker-cms-plugin": "0.3.2",
-    "liquidjs": "^10.27.2"
+    "@lionrockjs/worker-cms-plugin": "0.3.3"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260719.1",

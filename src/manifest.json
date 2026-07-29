@@ -3,6 +3,7 @@
   "name": "Form Builder",
   "version": "0.1.0",
   "i18n": false,
+  "autoTenant": true,
   "hooks": ["submission"],
   "autoPublishTypes": ["form"],
   "editViews": ["form"],
@@ -15,10 +16,6 @@
   "permissions": [
     { "value": "forms:view", "label": "Forms: view forms and submissions" },
     { "value": "forms:write", "label": "Forms: create, edit and delete forms" }
-  ],
-  "credits": [
-    { "key": "create_form", "label": "Create a form", "description": "Charged when a new form page is created. Free until priced.", "charge": "page_create", "page_type": "form" },
-    { "key": "export_submissions", "label": "Export submissions", "description": "Charged per submissions CSV export. Free until priced.", "charge": "metered", "unit": "export" }
   ],
   "limits": [
     { "key": "max_forms", "label": "Maximum forms", "description": "Total number of forms.", "page_type": "form", "scope": "total" },

@@ -32,7 +32,7 @@
 
 import { attr, items } from './cms';
 import { CHOICE_TYPES, GRID_TYPES, QUESTION_TYPES } from './fields';
-import { clientViewResponse } from './templates/views';
+import { clientViewResponse } from '@lionrockjs/worker-cms-plugin';
 
 /** Editor context the CMS POSTs to /__plugin/edit (host plugins/edit-view.ts). */
 export interface EditViewContext {

@@ -116,12 +116,15 @@ npm run dev
 ```
 
 - Register the plugin in the CMS admin under **Plugins** by its HTTPS URL; copy
-  the dedicated secret into this Worker (`wrangler secret put PLUGIN_SECRET`).
+  Auto tenant enrollment is enabled, so the CMS can connect and store its
+  dedicated secret in the bound `TENANTS` KV namespace automatically.
 - Deploy [worker-form](../worker-form) and set `PUBLIC_BASE_URL` to its origin,
   so the dashboard's shareable link is right. Bind the same `UPLOADS` bucket it
   writes to if any form uses file questions.
-- Multi-tenant: `npm run kv:setup` creates the `TENANTS` KV namespace; add one
-  `tenant:<cms origin>` record per connected CMS (see `wrangler.toml`).
+- For local development or an older single-tenant installation, `CMS_URL` and
+  `PLUGIN_SECRET` remain supported as a fallback.
+- To restrict automatic enrollment, set `TENANT_ENROLL_ORIGINS` to a
+  comma-separated list of canonical CMS origins.
 
 ## Development
 

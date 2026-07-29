@@ -21,14 +21,13 @@ binding = "CF_VERSION_METADATA"
 #   wrangler secret put PLUGIN_SECRET
 
 # ── Multi-tenant mode (several CMS hosts → this one plugin) ────────────────────
-# Bind a KV namespace and add one record per connected CMS; CMS_URL/PLUGIN_SECRET
-# then become optional (they form a legacy fallback tenant if kept):
-#   npm run kv:setup
-#   wrangler kv key put --binding TENANTS "tenant:https://cms1.example.com" \
-#     '{"secret":"<32-byte hex, unique per CMS>","signKey":"<32-byte hex>","publicBaseUrl":"https://forms1.example.com"}'
-# [[kv_namespaces]]
-# binding = "TENANTS"
-# id = "REPLACE_WITH_ID_FROM_npm_run_kv_setup"
+# The CMS can enroll and revoke itself through the SDK's auto-tenant protocol.
+# TENANT_ENROLL_ORIGINS may optionally restrict enrollment to a comma-separated
+# allowlist of canonical CMS origins. CMS_URL/PLUGIN_SECRET remain a local and
+# legacy single-tenant fallback.
+[[kv_namespaces]]
+binding = "TENANTS"
+id = "ed24dc375293421ebf5cbc937308ecfa"
 
 # ── Attachments (read side) ───────────────────────────────────────────────────
 # The SAME bucket worker-form writes file-upload answers to. Bind it to let the

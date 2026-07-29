@@ -4,7 +4,7 @@
 // Shared Plugin API client/types and neutral lect readers live in
 // @lionrockjs/worker-cms-plugin. This file keeps the plugin's imports stable
 // and adds only the form-specific extensions that do not belong in the
-// generic SDK (acting-user attribution, submission ingest, bulk teardown).
+// generic SDK (submission ingest and bulk teardown).
 // Mirrors cms-plugin-events/src/cms.ts.
 // ============================================================
 
@@ -67,45 +67,17 @@ function selectorFields(selector: CollectionSelector): Record<string, unknown> {
 export class CmsClient extends BaseCmsClient {
   /** The base `call`/`json` are private, so the raw /__cms fetches below keep their own copy of the link config. */
   private readonly link: { base: string; secret: string };
-  private actingUserId: string | null = null;
 
   constructor(env: CmsClientEnv) {
-    super({
-      cmsUrl: env.CMS_URL,
-      pluginSecret: env.PLUGIN_SECRET,
-      pluginId: PLUGIN_ID,
-      // The wrapper adds x-acting-user-id (when set) to every base-client
-      // call, so the host can charge credit costs to the signed-in admin.
-      fetcher: (input, init) => globalThis.fetch(input, this.withActingUser(init)),
-    });
+    super(env, PLUGIN_ID);
     this.link = { base: (env.CMS_URL ?? '').replace(/\/+$/, ''), secret: env.PLUGIN_SECRET ?? '' };
   }
 
-  /**
-   * Attributes subsequent CMS calls to the signed-in admin (from the
-   * `x-cms-user` summary the host forwards), so host-side credit costs are
-   * charged to them. Flows with no user (public form, hooks) stay unset.
-   */
-  actAs(userId: string | number | null | undefined): this {
-    this.actingUserId = userId === null || userId === undefined || userId === '' ? null : String(userId);
-    return this;
-  }
-
-  private withActingUser(init?: RequestInit): RequestInit {
-    if (!this.actingUserId) return init ?? {};
-    const headers = new Headers(init?.headers);
-    headers.set('x-acting-user-id', this.actingUserId);
-    // Plain object (not a Headers instance) so callers and tests that inspect
-    // init.headers by key keep working.
-    return { ...init, headers: Object.fromEntries(headers.entries()) };
-  }
-
-  /** Auth + attribution headers for this class's own raw /__cms fetches. */
+  /** Authentication headers for this class's own raw /__cms fetches. */
   private linkHeaders(extra: Record<string, string> = {}): Record<string, string> {
     return {
       'x-plugin-secret': this.link.secret,
       'x-plugin-id': PLUGIN_ID,
-      ...(this.actingUserId ? { 'x-acting-user-id': this.actingUserId } : {}),
       ...extra,
     };
   }

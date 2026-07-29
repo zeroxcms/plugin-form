@@ -30,6 +30,26 @@
       Back
     </a>
     <div class="flex items-center gap-2">
+      {%- comment -%}
+        Co-authoring presence + live field sync. The host resolves this page's
+        id / current user / avatar into `cmsEditPresence` for edit-mode plugin
+        views and auto-loads editor-sync.js through the admin chrome, so the
+        avatars, the "who's editing this field" highlight and CRDT sync all
+        work once this bar is present — the fields already use the CMS
+        (@attr / .field|lang / #block…) name grammar the sync watches.
+      {%- endcomment -%}
+      {% if cmsEditPresence.pageId != blank %}
+        <div id="presence-bar"
+             class="flex items-center gap-1.5 shrink-0"
+             data-page-id="{{ cmsEditPresence.pageId }}"
+             data-user-id="{{ cmsEditPresence.currentUserId }}"
+             data-user-avatar="{{ cmsEditPresence.userAvatar }}">
+          <div id="presence-avatars" class="flex items-center gap-1"></div>
+          <div id="sync-indicator"
+               title=""
+               style="width:8px;height:8px;border-radius:50%;background:#9ca3af;flex-shrink:0;transition:background .4s,opacity .4s;display:none"></div>
+        </div>
+      {% endif %}
       <label class="flex items-center gap-2 text-xs text-gray-500">
         Language
         {%- comment -%} data-autosubmit: the CMS layout reloads the editor in that language. {%- endcomment -%}
