@@ -43,7 +43,7 @@ id = "8fba81cbe99247c2a69f1983ca90ee1e"
 # Base URL of the CMS Worker — where this plugin reaches the Plugin API
 # ({CMS_URL}/__cms/*, page read/write). In multi-tenant mode, per-tenant cmsUrl
 # comes from the TENANTS record instead.
-CMS_URL = "http://localhost:8787"
+# CMS_URL = "http://localhost:8787"
 # Origin of worker-form, the separate Worker that serves /f/<slug> to visitors.
 # Shown as the shareable form link in the admin dashboard.
 # PUBLIC_BASE_URL = "https://forms.example.com"
