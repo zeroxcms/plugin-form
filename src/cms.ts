@@ -83,10 +83,10 @@ export class CmsClient extends BaseCmsClient {
   }
 
   /**
-   * One page plus whether it is currently live (CMS
+   * One page plus whether it is currently published (CMS
    * `GET /pages/:id?include_live_status=1`). The base client's `get` omits the
-   * flag, and the editor needs it: a form that is not in `live_pages` is
-   * invisible to worker-form, so the editor must offer Publish rather than
+   * flag, and the editor needs it: a form that is not in the published `pages`
+   * table is invisible to worker-form, so the editor must offer Publish rather than
    * Unpublish.
    */
   async getWithLiveStatus(id: number): Promise<CmsPage & { isPublished: boolean }> {

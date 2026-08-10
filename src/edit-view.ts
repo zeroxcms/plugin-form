@@ -22,8 +22,8 @@
 // restores the scroll position and enables drag-reorder of question rows.
 //
 //   action=publish             saves AND publishes (host route) — the only way
-//                              to get a new form into live_pages, where
-//                              worker-form can serve it.
+//                              to get a new form into the published `pages`
+//                              table, where worker-form can serve it.
 //   formaction=…/unpublish     takes a live form offline (host route).
 //
 // Which of the two the footer shows comes from `isPublished`, resolved in

@@ -4,9 +4,10 @@
   posts back to the CMS save handler at {{ action }} using the CMS field-name
   conventions (@attr, .field|lang, #<block>…, and the block-add /
   block-delete / block-item-* actions) — save, versioning and publishing all
-  stay host-side. `action=publish` is what puts the form in live_pages, where
-  worker-form can see it; plain saves only auto-republish a form that is
-  already live, so a new form stays invisible until it is published once. The
+  stay host-side. `action=publish` is what puts the form in the published
+  `pages` table, where worker-form can see it; plain saves only auto-republish a
+  form that is already published, so a new form stays invisible until it is
+  published once. The
   footer shows Publish or Unpublish from `published` (the live state the plugin
   probed via the CMS), both hitting the host's own routes.
   Styling uses only utilities the host CMS emits

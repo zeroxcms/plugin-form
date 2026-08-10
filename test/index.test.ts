@@ -30,7 +30,7 @@ function views(): Fetcher {
         // production the plugin redirects those view paths to the host.
         if (url.pathname.startsWith('/snippets/pagefield/')) {
           try {
-            return new Response(await readFile(fileURLToPath(new URL(`../../../../workers/cms/views${url.pathname}`, import.meta.url).href), 'utf8'));
+            return new Response(await readFile(fileURLToPath(new URL(`../../../../workers/cms/src/core/views${url.pathname}`, import.meta.url).href), 'utf8'));
           } catch {
             // Fall through to the normal not-found response.
           }

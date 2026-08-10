@@ -10,7 +10,7 @@ submissions table, CSV export, delete.
 
 Visitors are served by **[worker-form](../worker-form)** — a separate Worker on
 its own public domain that renders published forms from the CMS's published D1
-and records responses into it. Point `PUBLIC_BASE_URL` at it. The two Workers
+`pages` table and records responses into it. Point `PUBLIC_BASE_URL` at it. The two Workers
 never call each other; the published database is the only thing between them.
 
 ## How a form is built
@@ -80,12 +80,12 @@ page editor.
 
 ### Publishing
 
-worker-form only sees forms that are in `live_pages`, so a new form must be
+worker-form only sees forms that are in the published `pages` table, so a new form must be
 **published once** before its link works — the editor's green **Publish**
 button (`action=publish`, handled by the host's own save handler). After that,
 `form` being in `autoPublishTypes` means every ordinary Save republishes it
 automatically: the host's auto-republish only fires for a page that is already
-live (`cms/src/routes/admin/pages.ts`).
+published.
 
 The editor shows **Publish** or **Unpublish** depending on live state: on open
 it asks the host `GET /pages/:id?include_live_status=1`, and a live form gets
@@ -96,12 +96,12 @@ publish routes; the plugin only decides which button to show.
 
 ## Submission flow
 
-1. A visitor POSTs `/f/<slug>` on **worker-form**, which validates and writes
-   `INSERT INTO live_pages` (`form_submission`, negative id, `page_id` = form
-   id) in the published D1. Nothing reaches this Worker.
+1. A visitor POSTs `/f/<slug>` on **worker-form**, which validates and writes a
+   `form_submission` page (negative id, `page_id` = form id) into the published
+   D1 `pages` table. Nothing reaches this Worker.
 2. worker-cms's generic submission ingest (cron, or the admin's
    "Pull new submissions" button → `POST /__cms/ingest/submissions`) mirrors
-   live-only rows into draft pages and fires this plugin's `submission` hook.
+   published-only rows into draft pages and fires this plugin's `submission` hook.
 3. The admin reads the mirrored pages via the Plugin API
    (`page_type=form_submission&page_id=<form id>`) for the dashboard, table,
    and CSV export. Deleting a form trashes its submissions server-side
@@ -111,13 +111,14 @@ publish routes; the plugin only decides which button to show.
 
 ```sh
 npm install
-cp .dev.vars.example .dev.vars   # CMS_URL + PLUGIN_SECRET must match the host's
+cp .dev.vars.example .dev.vars   # CMS_URL + this plugin's PLUGIN_SECRET
 npm run dev
 ```
 
-- Register the plugin in the CMS admin under **Plugins** by its HTTPS URL; copy
-  Auto tenant enrollment is enabled, so the CMS can connect and store its
-  dedicated secret in the bound `TENANTS` KV namespace automatically.
+- Register the plugin in the CMS admin under **Plugins** by its HTTPS URL and
+  configure this plugin's dedicated shared secret. The manifest is `trusted-ui`
+  + `autoTenant`, so the CMS can connect and store its per-tenant record in the
+  bound `TENANTS` KV namespace automatically.
 - Deploy [worker-form](../worker-form) and set `PUBLIC_BASE_URL` to its origin,
   so the dashboard's shareable link is right. Bind the same `UPLOADS` bucket it
   writes to if any form uses file questions.

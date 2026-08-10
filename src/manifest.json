@@ -2,6 +2,7 @@
   "id": "form",
   "name": "Form Builder",
   "version": "0.1.0",
+  "trustLevel": "trusted-ui",
   "i18n": false,
   "autoTenant": true,
   "hooks": ["submission"],
