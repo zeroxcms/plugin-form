@@ -210,11 +210,13 @@ describe('plugin contract', () => {
       id: string;
       autoTenant: boolean;
       credits?: unknown;
+      permissions: Array<{ value: string }>;
       contentTypes: { blueprint: Record<string, unknown> };
     };
     expect(manifest.id).toBe('form');
     expect(manifest.autoTenant).toBe(true);
     expect(manifest.credits).toBeUndefined();
+    expect(manifest.permissions.map(({ value }) => value)).toEqual(['form:view', 'form:write']);
     expect(Object.keys(manifest.contentTypes.blueprint)).toEqual(['form', 'form_submission']);
   });
 
@@ -290,7 +292,7 @@ describe('plugin contract', () => {
 // ── Admin ─────────────────────────────────────────────────────────────────────
 
 describe('forms admin', () => {
-  it('lists forms', async () => {
+  it('lists forms for a custom role with form:view', async () => {
     stubCms((method, url) => {
       if (method === 'GET' && url.pathname === '/__cms/pages' && url.searchParams.get('page_type') === 'form') {
         return Response.json({ pages: [cmsFormPage()], total: 1 });
@@ -298,15 +300,20 @@ describe('forms admin', () => {
       return null;
     });
 
-    const response = await plugin.fetch(adminRequest('/__plugin/admin/forms'), env());
+    const response = await plugin.fetch(adminRequest('/__plugin/admin/forms', {
+      headers: {
+        'x-cms-user': JSON.stringify({ role: 'form-reviewer', permissions: ['form:view'] }),
+      },
+    }), env());
     expect(response.status).toBe(200);
     const html = await clientViewContractText(response);
+    expect(html).toContain('"canEdit":false');
     expect(html).toContain('Feedback');
     expect(html).toContain('/admin/plugins/form/forms/301');
     expect(html).toContain('Open');
   });
 
-  it('creates a form with starter blocks and opens the editor', async () => {
+  it('allows a moderator with form:write to create a form and open the editor', async () => {
     const calls = stubCms((method, url) => {
       if (method === 'POST' && url.pathname === '/__cms/pages') {
         return Response.json({ page: cmsFormPage({ id: 512 }) });
@@ -318,7 +325,10 @@ describe('forms admin', () => {
     const response = await plugin.fetch(adminRequest('/__plugin/admin/forms/new', {
       method: 'POST',
       body,
-      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      headers: {
+        'content-type': 'application/x-www-form-urlencoded',
+        'x-cms-user': JSON.stringify({ role: 'moderator', permissions: ['form:write'] }),
+      },
     }), env());
 
     expect(response.status).toBe(302);

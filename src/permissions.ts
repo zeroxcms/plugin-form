@@ -28,8 +28,8 @@ export function formAdminAccessForRequest(request: Request): FormAdminAccess {
   if (!roles.length) return { ...FULL_ACCESS };
   if (roles.includes('admin') || roles.includes('editor')) return { ...FULL_ACCESS };
 
-  const canWrite = permissions.includes('forms:write');
-  const canView = canWrite || permissions.includes('forms:view') || roles.includes('moderator');
+  const canWrite = permissions.includes('form:write');
+  const canView = canWrite || permissions.includes('form:view') || roles.includes('moderator');
   if (!canView) return { ...NO_ACCESS };
 
   return {

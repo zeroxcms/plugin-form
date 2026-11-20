@@ -14,8 +14,8 @@
     { "label": "Forms", "href": "forms", "roles": ["admin", "editor", "moderator"] }
   ],
   "permissions": [
-    { "value": "forms:view", "label": "Forms: view forms and submissions" },
-    { "value": "forms:write", "label": "Forms: create, edit and delete forms" }
+    { "value": "form:view", "label": "Forms: view forms and submissions" },
+    { "value": "form:write", "label": "Forms: create, edit and delete forms" }
   ],
   "limits": [
     { "key": "max_forms", "label": "Maximum forms", "description": "Total number of forms.", "page_type": "form", "scope": "total" },
